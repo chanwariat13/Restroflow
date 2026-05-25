@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Menu — RestroFlow</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0f; --surface:#14141e; --surface2:#1c1c28; --border:#26263a;
+    --accent:#ff6b35; --green:#06d6a0; --text:#f0f0f5; --muted:#8888a0; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text);
+    min-height:100vh; padding-bottom:120px; }
+
+  /* HEADER */
+  .header { background:var(--surface); border-bottom:1px solid var(--border);
+    padding:16px 20px; position:sticky; top:0; z-index:100; }
+  .header-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .restro-name { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; color:var(--accent); }
+  .table-info { font-size:13px; color:var(--muted); }
+  .cart-btn { background:linear-gradient(135deg,var(--accent),#ff8c5a); border:none; border-radius:12px;
+    padding:10px 18px; color:white; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif;
+    display:flex; align-items:center; gap:6px; }
+  .cart-count { background:white; color:var(--accent); border-radius:20px; padding:1px 7px; font-size:12px; font-weight:700; }
+
+  /* SEARCH */
+  .search-wrap { position:relative; }
+  .search-inp { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px;
+    padding:10px 16px 10px 40px; color:var(--text); font-size:14px; font-family:'DM Sans',sans-serif;
+    outline:none; }
+  .search-inp:focus { border-color:var(--accent); }
+  .search-icon { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:16px; }
+
+  /* CATEGORIES */
+  .cats { display:flex; gap:8px; overflow-x:auto; padding:14px 20px; scrollbar-width:none; border-bottom:1px solid var(--border); }
+  .cats::-webkit-scrollbar { display:none; }
+  .cat-btn { background:var(--surface2); border:1px solid var(--border); border-radius:20px;
+    padding:7px 16px; font-size:13px; color:var(--muted); cursor:pointer; white-space:nowrap; transition:all 0.2s; font-family:'DM Sans',sans-serif; }
+  .cat-btn.active { background:rgba(255,107,53,0.15); border-color:var(--accent); color:var(--accent); }
+
+  /* MENU ITEMS */
+  .menu-content { padding:16px 20px; }
+  .cat-section { margin-bottom:24px; }
+  .cat-title { font-family:'Syne',sans-serif; font-size:16px; font-weight:700; margin-bottom:14px;
+    padding-bottom:8px; border-bottom:1px solid var(--border); }
+
+  .menu-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+  .item-card { background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    overflow:hidden; transition:border-color 0.2s; }
+  .item-card:hover { border-color:rgba(255,107,53,0.3); }
+  .item-card.unavailable { opacity:0.5; }
+
+  .item-img { width:100%; height:100px; object-fit:cover; background:var(--surface2); }
+  .item-img-placeholder { width:100%; height:80px; background:var(--surface2);
+    display:flex; align-items:center; justify-content:center; font-size:32px; }
+
+  .item-body { padding:10px; }
+  .item-top { display:flex; align-items:flex-start; justify-content:space-between; gap:4px; margin-bottom:4px; }
+  .item-name { font-size:13px; font-weight:600; line-height:1.3; }
+  .veg-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-top:3px; }
+  .veg-dot.veg { background:var(--green); }
+  .veg-dot.nonveg { background:var(--accent); }
+  .item-desc { font-size:11px; color:var(--muted); margin-bottom:8px; line-height:1.4; }
+  .item-footer { display:flex; align-items:center; justify-content:space-between; }
+  .item-price { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; color:var(--accent); }
+  .bestseller { font-size:10px; background:rgba(255,209,102,0.15); color:#ffd166; border:1px solid rgba(255,209,102,0.3);
+    border-radius:20px; padding:2px 8px; }
+
+  /* ADD BUTTON */
+  .add-btn { background:var(--surface2); border:1px solid var(--border); border-radius:20px;
+    padding:5px 14px; font-size:13px; color:var(--text); cursor:pointer; font-family:'DM Sans',sans-serif;
+    transition:all 0.2s; white-space:nowrap; }
+  .add-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .qty-ctrl { display:flex; align-items:center; gap:6px; }
+  .qty-btn { width:26px; height:26px; border-radius:50%; border:1px solid var(--border); background:var(--surface2);
+    color:var(--text); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .qty-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .qty-num { font-weight:700; font-size:14px; min-width:20px; text-align:center; }
+
+  /* CART DRAWER */
+  .cart-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; display:none; }
+  .cart-overlay.open { display:block; }
+  .cart-drawer { position:fixed; bottom:0; left:0; right:0; background:var(--surface);
+    border-radius:20px 20px 0 0; border-top:1px solid var(--border); z-index:201;
+    transform:translateY(100%); transition:transform 0.3s ease; max-height:80vh; overflow-y:auto; }
+  .cart-drawer.open { transform:translateY(0); }
+  .cart-hdr { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; background:var(--surface); }
+  .cart-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; }
+  .cart-x { background:var(--surface2); border:1px solid var(--border); border-radius:8px; width:30px; height:30px;
+    cursor:pointer; color:var(--muted); font-size:18px; display:flex; align-items:center; justify-content:center; }
+  .cart-items { padding:16px 20px; }
+  .cart-item { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+  .cart-item:last-child { border-bottom:none; }
+  .ci-name { font-size:14px; font-weight:500; }
+  .ci-price { font-size:13px; color:var(--muted); }
+  .ci-right { display:flex; align-items:center; gap:10px; }
+  .ci-total { font-size:14px; font-weight:600; color:var(--accent); min-width:50px; text-align:right; }
+  .cart-footer { padding:16px 20px; border-top:1px solid var(--border); position:sticky; bottom:0; background:var(--surface); }
+  .cart-total-row { display:flex; justify-content:space-between; font-size:14px; margin-bottom:6px; }
+  .cart-total-row.grand { font-family:'Syne',sans-serif; font-size:17px; font-weight:700; }
+  .place-btn { width:100%; background:linear-gradient(135deg,var(--accent),#ff8c5a); border:none; border-radius:14px;
+    padding:14px; color:white; font-size:15px; font-weight:700; cursor:pointer; font-family:'DM Sans',sans-serif; margin-top:14px; }
+  .place-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+  /* BOTTOM BAR */
+  .bottom-bar { position:fixed; bottom:0; left:0; right:0; background:var(--surface); border-top:1px solid var(--border);
+    padding:14px 20px; display:flex; gap:10px; }
+  .bb-btn { flex:1; padding:12px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; border:1px solid; }
+  .bb-cart { background:linear-gradient(135deg,var(--accent),#ff8c5a); color:white; border:none; }
+  .bb-cart:disabled { opacity:0.4; cursor:not-allowed; }
+
+  .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
+  .empty-icon { font-size:48px; margin-bottom:12px; }
+
+  .toast { position:fixed; top:80px; left:50%; transform:translateX(-50%); background:var(--surface);
+    border:1px solid var(--border); border-radius:12px; padding:10px 20px; font-size:14px; z-index:9999;
+    display:none; gap:8px; align-items:center; white-space:nowrap; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+  .toast.show { display:flex; }
+
+  .loading { text-align:center; padding:60px 20px; color:var(--muted); }
+  .spin { width:32px; height:32px; border:2px solid var(--border); border-top-color:var(--accent);
+    border-radius:50%; animation:spin 0.8s linear infinite; margin:0 auto 14px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* SESSION ENDED */
+  #session-ended { display:none; min-height:100vh; align-items:center; justify-content:center; flex-direction:column; padding:40px; text-align:center; }
+  #session-ended.show { display:flex; }
+</style>
+</head>
+<body>
+
+<!-- SESSION ENDED -->
+<div id="session-ended">
+  <div style="font-size:64px;margin-bottom:16px">⏰</div>
+  <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin-bottom:8px">Session Ended</div>
+  <div style="color:var(--muted);font-size:14px">Your table session has ended. Please scan the QR code again to start a new session.</div>
+</div>
+
+<!-- MAIN APP -->
+<div id="main-app">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="restro-name" id="restro-name">__RESTRO_NAME__</div>
+        <div class="table-info" id="table-info"></div>
+      </div>
+      <button class="cart-btn" onclick="openCart()">
+        🛒 Cart <span class="cart-count" id="cart-count">0</span>
+      </button>
+    </div>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-inp" id="search-inp" placeholder="Search menu..." oninput="filterMenu()">
+    </div>
+  </div>
+
+  <!-- CATEGORIES -->
+  <div class="cats" id="cats-bar"></div>
+
+  <!-- MENU -->
+  <div class="menu-content" id="menu-content">
+    <div class="loading"><div class="spin"></div>Loading menu...</div>
+  </div>
+</div>
+
+<!-- CART OVERLAY -->
+<div class="cart-overlay" id="cart-overlay" onclick="closeCart()"></div>
+
+<!-- CART DRAWER -->
+<div class="cart-drawer" id="cart-drawer">
+  <div class="cart-hdr">
+    <div class="cart-title">🛒 Your Cart</div>
+    <div class="cart-x" onclick="closeCart()">×</div>
+  </div>
+  <div class="cart-items" id="cart-items-list"></div>
+  <div class="cart-footer">
+    <div class="cart-total-row"><span>Subtotal</span><span id="ct-sub">₹0</span></div>
+    <div class="cart-total-row"><span id="ct-gst-label">GST (5%)</span><span id="ct-gst">₹0</span></div>
+    <div class="cart-total-row grand"><span>Total</span><span id="ct-total">₹0</span></div>
+    <button class="place-btn" id="place-btn" onclick="placeOrder()">📤 Send to Kitchen</button>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottom-bar">
+  <button class="bb-btn bb-cart" id="bottom-cart-btn" onclick="openCart()" disabled>
+    🛒 View Cart (<span id="bb-count">0</span> items)
+  </button>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><span id="t-icon"></span><span id="t-msg"></span></div>
+
+<script>
+const BASE    = window.location.origin;
+const params  = new URLSearchParams(window.location.search);
+const SLUG    = window.location.pathname.split('/')[2] || '';
+const TABLE   = params.get('t') || '';
+const PHONE   = params.get('p') || '';
+const CNAME   = params.get('n') || 'Guest';
+const TOKEN   = params.get('k') || '';
+const GST_RATE = 0.05; // will be overridden from config
+
+let allMenu = [];
+let cart    = {}; // id → {item, qty}
+let categories = [];
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+async function init() {
+  if (!SLUG || !TABLE || !PHONE) {
+    showSessionEnded(); return;
+  }
+
+  document.getElementById('table-info').textContent = `🪑 Table ${TABLE} | 👤 ${CNAME}`;
+
+  // Load menu
+  try {
+    const r = await fetch(`${BASE}/webhook/${SLUG}/menu?view=1&table=${TABLE}`);
+    const data = await r.json();
+
+    if (data.sessionEnded) { showSessionEnded(); return; }
+
+    allMenu = Array.isArray(data) ? data : [];
+    buildCategories();
+    renderMenu(allMenu);
+  } catch(e) {
+    document.getElementById('menu-content').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">❌</div><p>Failed to load menu. Please try again.</p></div>';
+  }
+
+  // Sync cart from server
+  try {
+    const r = await fetch(`${BASE}/webhook/${SLUG}/get-cart`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({phone:PHONE, token:TOKEN})
+    });
+    const d = await r.json();
+    if (d.valid && d.orders) {
+      d.orders.forEach(o => {
+        cart[o.id] = {item:{id:o.id,name:o.name,price:o.price}, qty:o.quantity};
+      });
+      updateCartUI();
+    }
+  } catch(e) {}
+}
+
+function showSessionEnded() {
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('bottom-bar')?.remove();
+  document.getElementById('session-ended').classList.add('show');
+}
+
+// ── CATEGORIES ────────────────────────────────────────────────────────────
+function buildCategories() {
+  const cats = ['All', ...new Set(allMenu.map(i => i.category))];
+  categories = cats;
+  const bar = document.getElementById('cats-bar');
+  bar.innerHTML = cats.map((c,i) =>
+    `<button class="cat-btn ${i===0?'active':''}" onclick="filterCat('${c}',this)">${c}</button>`
+  ).join('');
+}
+
+function filterCat(cat, btn) {
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filtered = cat === 'All' ? allMenu : allMenu.filter(i => i.category === cat);
+  renderMenu(filtered);
+}
+
+function filterMenu() {
+  const q = document.getElementById('search-inp').value.toLowerCase();
+  const filtered = allMenu.filter(i =>
+    i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q) || (i.description||'').toLowerCase().includes(q)
+  );
+  renderMenu(filtered);
+}
+
+// ── RENDER MENU ───────────────────────────────────────────────────────────
+function renderMenu(items) {
+  const container = document.getElementById('menu-content');
+  if (!items.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><p>No items found</p></div>';
+    return;
+  }
+
+  // Group by category
+  const grouped = {};
+  items.forEach(item => {
+    if (!grouped[item.category]) grouped[item.category] = [];
+    grouped[item.category].push(item);
+  });
+
+  let html = '';
+  Object.entries(grouped).forEach(([cat, catItems]) => {
+    html += `<div class="cat-section"><div class="cat-title">${cat}</div><div class="menu-grid">`;
+    catItems.forEach(item => {
+      const inCart = cart[item.id];
+      const qtyCtrl = inCart
+        ? `<div class="qty-ctrl">
+            <button class="qty-btn" onclick="updateQty('${item.id}',-1)">−</button>
+            <span class="qty-num">${inCart.qty}</span>
+            <button class="qty-btn" onclick="updateQty('${item.id}',1)">+</button>
+          </div>`
+        : `<button class="add-btn" onclick="addToCart('${item.id}')">+ Add</button>`;
+
+      const unavailClass = item.available === false ? 'unavailable' : '';
+      const imgHtml = item.image
+        ? `<img class="item-img" src="${item.image}" alt="${item.name}" onerror="this.style.display='none'">`
+        : `<div class="item-img-placeholder">${item.type==='nonveg'?'🍗':'🥗'}</div>`;
+
+      html += `<div class="item-card ${unavailClass}">
+        ${imgHtml}
+        <div class="item-body">
+          <div class="item-top">
+            <div class="item-name">${item.name} ${item.bestseller?'<span class="bestseller">⭐ Best</span>':''}</div>
+            <div class="veg-dot ${item.type}"></div>
+          </div>
+          ${item.description ? `<div class="item-desc">${item.description}</div>` : ''}
+          <div class="item-footer">
+            <div class="item-price">₹${item.price}</div>
+            ${item.available !== false ? qtyCtrl : '<span style="font-size:11px;color:var(--muted)">Unavailable</span>'}
+          </div>
+        </div>
+      </div>`;
+    });
+    html += '</div></div>';
+  });
+  container.innerHTML = html;
+}
+
+// ── CART ──────────────────────────────────────────────────────────────────
+function addToCart(id) {
+  const item = allMenu.find(i => String(i.id) === String(id));
+  if (!item) return;
+  if (cart[id]) cart[id].qty++;
+  else cart[id] = {item, qty:1};
+  updateCartUI();
+  renderMenu(allMenu.filter(i => {
+    const search = document.getElementById('search-inp').value.toLowerCase();
+    return !search || i.name.toLowerCase().includes(search);
+  }));
+  showToast(`${item.name} added!`, 'success');
+}
+
+function updateQty(id, delta) {
+  if (!cart[id]) return;
+  cart[id].qty += delta;
+  if (cart[id].qty <= 0) delete cart[id];
+  updateCartUI();
+  renderMenu(allMenu);
+}
+
+function updateCartUI() {
+  const totalItems = Object.values(cart).reduce((s,c) => s + c.qty, 0);
+  document.getElementById('cart-count').textContent = totalItems;
+  document.getElementById('bb-count').textContent = totalItems;
+  document.getElementById('bottom-cart-btn').disabled = totalItems === 0;
+
+  // Cart drawer items
+  const listEl = document.getElementById('cart-items-list');
+  if (!totalItems) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:30px"><div class="empty-icon">🛒</div><p>Cart is empty</p></div>';
+  } else {
+    listEl.innerHTML = Object.values(cart).map(c =>
+      `<div class="cart-item">
+        <div><div class="ci-name">${c.item.name}</div><div class="ci-price">₹${c.item.price} each</div></div>
+        <div class="ci-right">
+          <div class="qty-ctrl">
+            <button class="qty-btn" onclick="updateQty('${c.item.id}',-1)">−</button>
+            <span class="qty-num">${c.qty}</span>
+            <button class="qty-btn" onclick="updateQty('${c.item.id}',1)">+</button>
+          </div>
+          <div class="ci-total">₹${(c.item.price * c.qty).toFixed(0)}</div>
+        </div>
+      </div>`
+    ).join('');
+  }
+
+  // Totals
+  const sub  = Object.values(cart).reduce((s,c) => s + c.item.price * c.qty, 0);
+  const gst  = Math.round(sub * GST_RATE);
+  const total = sub + gst;
+  document.getElementById('ct-sub').textContent   = '₹' + sub.toFixed(0);
+  document.getElementById('ct-gst').textContent   = '₹' + gst.toFixed(0);
+  document.getElementById('ct-total').textContent = '₹' + total.toFixed(0);
+  document.getElementById('place-btn').disabled = totalItems === 0;
+}
+
+function openCart()  {
+  document.getElementById('cart-overlay').classList.add('open');
+  document.getElementById('cart-drawer').classList.add('open');
+}
+function closeCart() {
+  document.getElementById('cart-overlay').classList.remove('open');
+  document.getElementById('cart-drawer').classList.remove('open');
+}
+
+// ── PLACE ORDER ───────────────────────────────────────────────────────────
+async function placeOrder() {
+  const btn = document.getElementById('place-btn');
+  btn.disabled = true; btn.textContent = 'Sending...';
+
+  const items = Object.values(cart).map(c => ({
+    id: c.item.id, name: c.item.name, price: c.item.price, qty: c.qty, category: c.item.category || 'Other'
+  }));
+
+  try {
+    const r = await fetch(`${BASE}/webhook/${SLUG}/receive-order`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({phone:PHONE, table:TABLE, name:CNAME, token:TOKEN, items, fullCart:true})
+    });
+    const d = await r.json();
+    if (d.success) {
+      cart = {};
+      updateCartUI();
+      closeCart();
+      showToast('🍳 Order sent to kitchen!', 'success');
+    } else {
+      showToast(d.error || 'Failed to place order', 'error');
+      btn.disabled = false; btn.textContent = '📤 Send to Kitchen';
+    }
+  } catch(e) {
+    showToast('Network error', 'error');
+    btn.disabled = false; btn.textContent = '📤 Send to Kitchen';
+  }
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────────────
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  document.getElementById('t-icon').textContent = type==='success' ? '✅' : '❌';
+  document.getElementById('t-msg').textContent = msg;
+  t.className = 'toast show';
+  setTimeout(() => t.className='toast', 2500);
+}
+
+// Set restro name from URL/page title
+
+
+init();
+</script>
+</body>
+</html>

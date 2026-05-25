@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Staff Dashboard — RestroFlow</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0a0a0f; --surface:#14141e; --surface2:#1c1c28; --border:#26263a;
+    --accent:#ff6b35; --green:#06d6a0; --red:#ef4444; --yellow:#ffd166; --blue:#60a5fa;
+    --text:#f0f0f5; --muted:#8888a0; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+  #login { min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at 50% 30%,#1a0f20,var(--bg) 70%); padding:20px; }
+  .login-card { background:var(--surface); border:1px solid var(--border); border-radius:24px;
+    padding:40px 32px; width:100%; max-width:380px; text-align:center; }
+  .brand { font-family:'Syne',sans-serif; font-size:26px; font-weight:800; color:var(--accent); }
+  .brand-sub { color:var(--muted); font-size:13px; margin-bottom:28px; margin-top:4px; }
+  .role-badge { display:inline-block; background:rgba(255,107,53,0.1); border:1px solid rgba(255,107,53,0.3);
+    color:var(--accent); border-radius:20px; padding:4px 14px; font-size:12px; margin-bottom:24px; }
+  .inp { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px;
+    padding:12px 16px; color:var(--text); font-size:15px; font-family:'DM Sans',sans-serif;
+    outline:none; margin-bottom:12px; }
+  .inp:focus { border-color:var(--accent); }
+  .btn-login { width:100%; background:linear-gradient(135deg,var(--accent),#ff8c5a); border:none;
+    border-radius:12px; padding:13px; color:white; font-size:15px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .err { color:#f87171; font-size:13px; margin-top:10px; display:none; }
+
+  #app { display:none; min-height:100vh; }
+
+  /* TOP BAR */
+  .topbar { background:var(--surface); border-bottom:1px solid var(--border); padding:0 20px;
+    height:60px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+  .topbar-left { display:flex; align-items:center; gap:12px; }
+  .topbar-logo { font-family:'Syne',sans-serif; font-size:18px; font-weight:800; color:var(--accent); }
+  .topbar-restro { font-size:13px; color:var(--muted); }
+  .staff-info { display:flex; align-items:center; gap:10px; }
+  .staff-name { font-size:14px; font-weight:500; }
+  .role-pill { font-size:11px; padding:3px 10px; border-radius:20px; font-weight:600; }
+  .role-pill.owner { background:rgba(255,107,53,0.15); color:var(--accent); }
+  .role-pill.manager { background:rgba(96,165,250,0.15); color:var(--blue); }
+  .role-pill.kitchen { background:rgba(255,209,102,0.15); color:var(--yellow); }
+  .role-pill.waiter { background:rgba(6,214,160,0.15); color:var(--green); }
+  .btn-out { background:transparent; border:1px solid var(--border); border-radius:8px; padding:6px 14px;
+    color:var(--muted); font-size:12px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+
+  /* TABS */
+  .tabs { display:flex; gap:4px; padding:16px 20px 0; background:var(--surface);
+    border-bottom:1px solid var(--border); overflow-x:auto; }
+  .tab { padding:10px 18px; border-radius:10px 10px 0 0; font-size:13px; font-weight:500;
+    cursor:pointer; color:var(--muted); border:1px solid transparent; white-space:nowrap; }
+  .tab.active { color:var(--accent); border-color:var(--border); border-bottom-color:var(--bg);
+    background:var(--bg); }
+  .tab:hover:not(.active) { color:var(--text); }
+
+  /* CONTENT */
+  .main { padding:20px; max-width:1100px; margin:0 auto; }
+  .section { display:none; }
+  .section.active { display:block; }
+
+  /* STATS */
+  .stats-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px; margin-bottom:20px; }
+  .stat { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .stat-label { font-size:11px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; }
+  .stat-val { font-family:'Syne',sans-serif; font-size:26px; font-weight:700; }
+  .stat.green .stat-val { color:var(--green); }
+  .stat.orange .stat-val { color:var(--accent); }
+  .stat.yellow .stat-val { color:var(--yellow); }
+
+  /* CARDS */
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; overflow:hidden; margin-bottom:16px; }
+  .card-hdr { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .card-title { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; }
+  .refresh-btn { background:transparent; border:1px solid var(--border); border-radius:8px; padding:5px 12px;
+    color:var(--muted); font-size:12px; cursor:pointer; font-family:'DM Sans',sans-serif; }
+
+  /* TABLES GRID */
+  .tables-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+  .table-tile { background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:16px; text-align:center; cursor:pointer; transition:all 0.2s; }
+  .table-tile:hover { border-color:var(--accent); }
+  .table-tile.occupied { border-color:rgba(255,107,53,0.4); background:rgba(255,107,53,0.04); }
+  .table-tile.pending { border-color:rgba(255,209,102,0.5); background:rgba(255,209,102,0.05); animation:pulse 1.5s infinite; }
+  .table-tile.free { border-color:rgba(6,214,160,0.3); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.7} }
+  .t-num { font-family:'Syne',sans-serif; font-size:22px; font-weight:700; margin-bottom:6px; }
+  .t-name { font-size:12px; color:var(--muted); }
+  .t-total { font-size:13px; color:var(--accent); margin-top:4px; }
+  .t-status { font-size:11px; margin-top:4px; }
+
+  /* PENDING APPROVALS */
+  .approval-card { background:var(--surface); border:1px solid rgba(255,209,102,0.4); border-radius:14px;
+    padding:16px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; }
+  .approval-info .name { font-weight:600; font-size:15px; }
+  .approval-info .detail { font-size:12px; color:var(--muted); margin-top:2px; }
+  .approval-actions { display:flex; gap:8px; }
+  .btn-approve { background:rgba(6,214,160,0.15); border:1px solid rgba(6,214,160,0.4); color:var(--green);
+    border-radius:10px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-reject { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:var(--red);
+    border-radius:10px; padding:8px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+
+  /* KITCHEN CARDS */
+  .kitchen-card { background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:18px; margin-bottom:14px; }
+  .kitchen-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .kitchen-table { font-family:'Syne',sans-serif; font-size:20px; font-weight:700; }
+  .kitchen-cust { font-size:13px; color:var(--muted); }
+  .kitchen-items { list-style:none; margin-bottom:14px; }
+  .kitchen-items li { padding:8px 0; border-bottom:1px solid var(--border); font-size:14px; display:flex; align-items:center; gap:8px; }
+  .kitchen-items li:last-child { border-bottom:none; }
+  .qty-badge { background:var(--surface2); border-radius:8px; padding:3px 10px; font-weight:700; font-size:15px; color:var(--accent); }
+  .btn-done { width:100%; background:linear-gradient(135deg,var(--green),#04b885); border:none; border-radius:12px;
+    padding:12px; color:white; font-size:14px; font-weight:700; cursor:pointer; font-family:'DM Sans',sans-serif; }
+
+  /* ORDERS TABLE */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { padding:11px 14px; text-align:left; font-size:11px; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); }
+  td { padding:11px 14px; border-bottom:1px solid var(--border); }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:var(--surface2); }
+
+  .badge-g { background:rgba(6,214,160,0.1); color:var(--green); border:1px solid rgba(6,214,160,0.2); border-radius:20px; padding:2px 10px; font-size:11px; }
+  .badge-o { background:rgba(255,107,53,0.1); color:var(--accent); border:1px solid rgba(255,107,53,0.2); border-radius:20px; padding:2px 10px; font-size:11px; }
+  .badge-y { background:rgba(255,209,102,0.1); color:var(--yellow); border:1px solid rgba(255,209,102,0.2); border-radius:20px; padding:2px 10px; font-size:11px; }
+
+  /* TABLE DETAIL MODAL */
+  .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px);
+    z-index:200; display:none; align-items:flex-end; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--surface); border:1px solid var(--border); border-radius:20px 20px 0 0;
+    padding:24px; width:100%; max-width:500px; max-height:80vh; overflow-y:auto; }
+  .modal-hdr { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+  .modal-ttl { font-family:'Syne',sans-serif; font-size:20px; font-weight:700; }
+  .modal-x { background:var(--surface2); border:1px solid var(--border); border-radius:8px; width:30px; height:30px;
+    cursor:pointer; color:var(--muted); font-size:18px; display:flex; align-items:center; justify-content:center; }
+  .modal-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+  .modal-btn { padding:12px; border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; border:1px solid; }
+  .modal-btn.cash { background:rgba(6,214,160,0.1); border-color:rgba(6,214,160,0.3); color:var(--green); }
+  .modal-btn.free { background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.3); color:var(--red); }
+  .modal-btn.bill { background:rgba(255,107,53,0.1); border-color:rgba(255,107,53,0.3); color:var(--accent); }
+
+  .toast { position:fixed; bottom:20px; right:20px; background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:12px 18px; font-size:14px; z-index:9999; display:none; gap:10px; align-items:center; }
+  .toast.show { display:flex; }
+
+  .loading { text-align:center; padding:40px; color:var(--muted); }
+  .empty { text-align:center; padding:32px; color:var(--muted); font-size:14px; }
+
+  .auto-refresh { font-size:11px; color:var(--muted); text-align:right; margin-bottom:8px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-card">
+    <div class="brand">RestroFlow</div>
+    <div class="brand-sub">Staff Login</div>
+    <div class="role-badge">👨‍🍳 Staff & Kitchen Portal</div>
+    <input class="inp" id="l-slug" placeholder="Restaurant ID (e.g. whiteSugar)" onkeydown="if(event.key==='Enter')nextField('l-phone')">
+    <input class="inp" id="l-phone" placeholder="Your WhatsApp Number (91XXXXXXXXXX)" onkeydown="if(event.key==='Enter')nextField('l-pin')">
+    <input class="inp" type="password" id="l-pin" placeholder="Your PIN" maxlength="6" onkeydown="if(event.key==='Enter')login()">
+    <button class="btn-login" onclick="login()">Login →</button>
+    <div class="err" id="l-err">Wrong credentials. Check with your manager.</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div>
+        <div class="topbar-logo">RestroFlow</div>
+        <div class="topbar-restro" id="sb-restro"></div>
+      </div>
+    </div>
+    <div class="staff-info">
+      <div>
+        <div class="staff-name" id="sb-name"></div>
+        <div class="role-pill" id="sb-role"></div>
+      </div>
+      <button class="btn-out" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs-bar"></div>
+
+  <div class="main">
+
+    <!-- OVERVIEW (owner only) -->
+    <div class="section" id="sec-overview">
+      <div class="stats-row">
+        <div class="stat orange"><div class="stat-label">Today Revenue</div><div class="stat-val" id="ov-total">—</div></div>
+        <div class="stat green"><div class="stat-label">Orders</div><div class="stat-val" id="ov-orders">—</div></div>
+        <div class="stat yellow"><div class="stat-label">Cash</div><div class="stat-val" id="ov-cash">—</div></div>
+        <div class="stat orange"><div class="stat-label">Online</div><div class="stat-val" id="ov-online">—</div></div>
+      </div>
+    </div>
+
+    <!-- TABLES -->
+    <div class="section" id="sec-tables">
+      <!-- Pending Approvals -->
+      <div id="pending-section" style="display:none">
+        <div class="card-hdr" style="background:var(--surface);border-radius:14px 14px 0 0;border:1px solid rgba(255,209,102,0.4)">
+          <div class="card-title" style="color:var(--yellow)">⏳ Pending Approvals</div>
+          <button class="refresh-btn" onclick="loadPending()">↻</button>
+        </div>
+        <div id="pending-list" style="padding:12px 0"></div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 12px">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">Live Tables</div>
+        <button class="refresh-btn" onclick="loadTables()">↻ Refresh</button>
+      </div>
+      <div class="auto-refresh" id="last-refresh"></div>
+      <div id="tables-grid" class="tables-grid"></div>
+    </div>
+
+    <!-- ORDERS -->
+    <div class="section" id="sec-orders">
+      <div class="card">
+        <div class="card-hdr">
+          <div class="card-title">Today's Orders</div>
+          <button class="refresh-btn" onclick="loadOrders()">↻ Refresh</button>
+        </div>
+        <div id="orders-body"></div>
+      </div>
+    </div>
+
+    <!-- KITCHEN -->
+    <div class="section" id="sec-kitchen">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700">🔥 Kitchen Orders</div>
+        <button class="refresh-btn" onclick="loadKitchen()">↻ Refresh</button>
+      </div>
+      <div class="auto-refresh" id="kitchen-refresh-time"></div>
+      <div id="kitchen-orders"></div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- TABLE DETAIL MODAL -->
+<div class="modal-overlay" id="table-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-ttl" id="tm-title">Table Detail</div>
+      <div class="modal-x" onclick="closeTableModal()">×</div>
+    </div>
+    <div id="tm-content"></div>
+    <div class="modal-actions" id="tm-actions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="t-icon"></span><span id="t-msg"></span></div>
+
+<script>
+const BASE = window.location.origin;
+let SLUG='', PHONE='', PIN='', ROLE='', PERMS=[], NAME='', RESTRO='';
+let refreshTimer = null;
+
+function nextField(id) { document.getElementById(id).focus(); }
+
+// ── LOGIN ────────────────────────────────────────────────────────────────
+async function login() {
+  SLUG  = document.getElementById('l-slug').value.trim();
+  PHONE = document.getElementById('l-phone').value.trim();
+  PIN   = document.getElementById('l-pin').value.trim();
+  if (!SLUG || !PHONE || !PIN) return;
+
+  const r = await fetch(BASE+'/api/staff/login', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN})
+  });
+  const d = await r.json();
+  if (d.success) {
+    NAME=d.name; ROLE=d.role; PERMS=d.permissions; RESTRO=d.restaurant_name;
+    document.getElementById('sb-name').textContent = NAME;
+    document.getElementById('sb-restro').textContent = RESTRO;
+    const rp = document.getElementById('sb-role');
+    rp.textContent = ROLE.charAt(0).toUpperCase()+ROLE.slice(1);
+    rp.className = 'role-pill ' + ROLE;
+    buildTabs();
+    document.getElementById('login').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    // Load first tab
+    const firstPerm = PERMS[0];
+    if (firstPerm) showSection(firstPerm === 'overview' ? 'overview' : firstPerm);
+    startAutoRefresh();
+  } else {
+    document.getElementById('l-err').style.display = 'block';
+  }
+}
+
+function logout() {
+  clearInterval(refreshTimer);
+  SLUG='';PHONE='';PIN='';ROLE='';PERMS=[];
+  document.getElementById('login').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('l-err').style.display='none';
+}
+
+// ── TABS ─────────────────────────────────────────────────────────────────
+const TAB_CONFIG = {
+  overview: {label:'📊 Overview', section:'overview'},
+  tables:   {label:'🪑 Tables',   section:'tables'},
+  orders:   {label:'🧾 Orders',   section:'orders'},
+  kitchen:  {label:'🔥 Kitchen',  section:'kitchen'},
+};
+
+function buildTabs() {
+  const bar = document.getElementById('tabs-bar');
+  bar.innerHTML = '';
+  const showPerms = PERMS.filter(p => TAB_CONFIG[p]);
+  showPerms.forEach((p, i) => {
+    const cfg = TAB_CONFIG[p];
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (i===0?' active':'');
+    tab.textContent = cfg.label;
+    tab.onclick = () => {
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      showSection(cfg.section);
+    };
+    bar.appendChild(tab);
+  });
+}
+
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  const sec = document.getElementById('sec-'+id);
+  if (sec) sec.classList.add('active');
+  const loaders = {overview:loadOverview, tables:loadTables, orders:loadOrders, kitchen:loadKitchen};
+  if (loaders[id]) loaders[id]();
+}
+
+// ── AUTO REFRESH ──────────────────────────────────────────────────────────
+function startAutoRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    const activeSec = document.querySelector('.section.active');
+    if (!activeSec) return;
+    const id = activeSec.id.replace('sec-','');
+    const loaders = {tables:loadTables, kitchen:loadKitchen, pending:loadPending};
+    if (loaders[id]) loaders[id]();
+  }, 15000); // refresh every 15 seconds
+}
+
+// ── OVERVIEW ─────────────────────────────────────────────────────────────
+async function loadOverview() {
+  const r = await fetch(`${BASE}/api/staff/${SLUG}/overview?phone=${PHONE}&pin=${PIN}`);
+  if (!r.ok) return;
+  const d = await r.json();
+  document.getElementById('ov-total').textContent = '₹'+d.total.toFixed(0);
+  document.getElementById('ov-orders').textContent = d.orders;
+  document.getElementById('ov-cash').textContent = '₹'+d.cash.toFixed(0);
+  document.getElementById('ov-online').textContent = '₹'+d.online.toFixed(0);
+}
+
+// ── TABLES ────────────────────────────────────────────────────────────────
+async function loadTables() {
+  loadPending();
+  const r = await fetch(`${BASE}/api/staff/${SLUG}/tables?phone=${PHONE}&pin=${PIN}`);
+  if (!r.ok) return;
+  const d = await r.json();
+  const grid = document.getElementById('tables-grid');
+  let html = '';
+  d.table_names.forEach(tname => {
+    const t = d.live_tables.find(x => x.table === tname);
+    if (t) {
+      const isPending = t.status === 'AWAITING_APPROVAL';
+      const cls = isPending ? 'pending' : 'occupied';
+      const statusLabel = isPending ? '⏳ Waiting' : t.status.replace('_',' ');
+      html += `<div class="table-tile ${cls}" onclick="showTableDetail('${tname}', ${JSON.stringify(t).replace(/'/g,"&#39;")})">
+        <div class="t-num">${tname}</div>
+        <div class="t-name">${t.name}</div>
+        <div class="t-total">₹${t.total}</div>
+        <div class="t-status">${statusLabel}</div>
+      </div>`;
+    } else {
+      html += `<div class="table-tile free" onclick="showTableDetail('${tname}', null)">
+        <div class="t-num">${tname}</div>
+        <div class="t-status" style="color:var(--green)">🟢 Free</div>
+      </div>`;
+    }
+  });
+  grid.innerHTML = html;
+  const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  const el = document.getElementById('last-refresh');
+  if (el) el.textContent = 'Last updated: ' + now;
+}
+
+async function loadPending() {
+  const r = await fetch(`${BASE}/api/staff/${SLUG}/pending?phone=${PHONE}&pin=${PIN}`);
+  if (!r.ok) return;
+  const pending = await r.json();
+  const sec = document.getElementById('pending-section');
+  const list = document.getElementById('pending-list');
+  if (!pending.length) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  list.innerHTML = pending.map(p => `
+    <div class="approval-card">
+      <div class="approval-info">
+        <div class="name">👤 ${p.name}</div>
+        <div class="detail">📱 ${p.phone} | 🪑 ${p.table}</div>
+      </div>
+      <div class="approval-actions">
+        <button class="btn-approve" onclick="approveCustomer('${p.phone}')">✅ Approve</button>
+        <button class="btn-reject" onclick="rejectCustomer('${p.phone}')">❌ Reject</button>
+      </div>
+    </div>`).join('');
+}
+
+function showTableDetail(tname, tdata) {
+  document.getElementById('tm-title').textContent = `Table ${tname}`;
+  const content = document.getElementById('tm-content');
+  const actions = document.getElementById('tm-actions');
+
+  if (!tdata) {
+    content.innerHTML = '<div class="empty">🟢 This table is free</div>';
+    actions.innerHTML = '';
+  } else {
+    const orders = tdata.orders || [];
+    const orderHtml = orders.length
+      ? orders.map(o => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:14px">${o.quantity}x ${o.name} — ₹${parseFloat(o.price)*o.quantity}</div>`).join('')
+      : '<div style="color:var(--muted);font-size:13px">No items in cart</div>';
+
+    content.innerHTML = `
+      <div style="margin-bottom:14px">
+        <div style="font-size:16px;font-weight:600">${tdata.name}</div>
+        <div style="font-size:12px;color:var(--muted)">${tdata.phone} | ${tdata.status}</div>
+      </div>
+      <div style="margin-bottom:12px;font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Current Cart</div>
+      <div style="margin-bottom:14px">${orderHtml}</div>
+      <div style="font-size:15px;font-weight:700">Total: ₹${tdata.total}</div>`;
+
+    const btns = [];
+    if (tdata.status === 'AWAITING_APPROVAL') {
+      btns.push(`<button class="modal-btn cash" onclick="approveCustomer('${tdata.phone}');closeTableModal()">✅ Approve</button>`);
+      btns.push(`<button class="modal-btn free" onclick="rejectCustomer('${tdata.phone}');closeTableModal()">❌ Reject</button>`);
+    } else if (tdata.status === 'PENDING_CASH_PAYMENT' || tdata.status === 'PENDING_PAYMENT') {
+      btns.push(`<button class="modal-btn cash" onclick="cashConfirm('${tdata.phone}');closeTableModal()">💵 Cash Received</button>`);
+    }
+    btns.push(`<button class="modal-btn free" onclick="freeTable('${tname}');closeTableModal()">🗑️ Free Table</button>`);
+    actions.innerHTML = btns.join('');
+  }
+  document.getElementById('table-modal').classList.add('open');
+}
+
+function closeTableModal() { document.getElementById('table-modal').classList.remove('open'); }
+
+// ── APPROVE / REJECT ──────────────────────────────────────────────────────
+async function approveCustomer(custPhone) {
+  const r = await fetch(BASE+'/api/staff/approve', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN, cust_phone:custPhone})
+  });
+  const d = await r.json();
+  showToast(d.message || (d.success ? 'Approved!' : 'Error'), d.success ? 'success' : 'error');
+  if (d.success) loadTables();
+}
+
+async function rejectCustomer(custPhone) {
+  if (!confirm('Reject this customer?')) return;
+  const r = await fetch(BASE+'/api/staff/reject', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN, cust_phone:custPhone})
+  });
+  const d = await r.json();
+  showToast(d.success ? 'Rejected' : 'Error', d.success ? 'success' : 'error');
+  if (d.success) loadTables();
+}
+
+async function cashConfirm(custPhone) {
+  const r = await fetch(BASE+'/api/staff/cash-confirm', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN, cust_phone:custPhone})
+  });
+  const d = await r.json();
+  showToast(d.success ? `Cash confirmed! ₹${d.total?.toFixed(0)||''}` : 'Error', d.success ? 'success' : 'error');
+  if (d.success) loadTables();
+}
+
+async function freeTable(table) {
+  if (!confirm(`Free table ${table}? This will end their session.`)) return;
+  const r = await fetch(BASE+'/api/staff/free-table', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN, table})
+  });
+  const d = await r.json();
+  showToast(d.message || 'Done', d.success ? 'success' : 'error');
+  if (d.success) loadTables();
+}
+
+// ── ORDERS ────────────────────────────────────────────────────────────────
+async function loadOrders() {
+  const r = await fetch(`${BASE}/api/staff/${SLUG}/orders?phone=${PHONE}&pin=${PIN}`);
+  const orders = await r.json();
+  const body = document.getElementById('orders-body');
+  if (!orders.length) { body.innerHTML='<div class="empty">No orders today yet</div>'; return; }
+  let html = '<table><tr><th>Time</th><th>Table</th><th>Customer</th><th>Total</th><th>Payment</th><th>Action</th></tr>';
+  orders.forEach(o => {
+    const needsCash = o.status === 'Paid' && o.payment_method === 'Cash' && !o.billed;
+    html += `<tr>
+      <td style="font-size:12px">${(o.date||'').split(',')[1]||''}</td>
+      <td>${o.table_name}</td><td>${o.customer_name}</td>
+      <td>₹${parseFloat(o.total).toFixed(0)}</td>
+      <td>${o.payment_method}</td>
+      <td>${needsCash ? `<button class="btn-approve" style="font-size:11px;padding:5px 10px" onclick="cashConfirm('${o.phone}')">💵 Confirm</button>` : '<span class="badge-g">Done</span>'}</td>
+    </tr>`;
+  });
+  html += '</table>';
+  body.innerHTML = html;
+}
+
+// ── KITCHEN ───────────────────────────────────────────────────────────────
+async function loadKitchen() {
+  const r = await fetch(`${BASE}/api/staff/${SLUG}/kitchen-orders?phone=${PHONE}&pin=${PIN}`);
+  if (!r.ok) return;
+  const orders = await r.json();
+  const container = document.getElementById('kitchen-orders');
+  const now = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+  const el = document.getElementById('kitchen-refresh-time');
+  if (el) el.textContent = 'Auto-refreshes every 15s | Last: ' + now;
+
+  if (!orders.length) {
+    container.innerHTML = '<div class="empty">🟢 No pending kitchen orders</div>'; return;
+  }
+  container.innerHTML = orders.map(o => `
+    <div class="kitchen-card">
+      <div class="kitchen-hdr">
+        <div>
+          <div class="kitchen-table">${o.table}</div>
+          <div class="kitchen-cust">👤 ${o.name}</div>
+        </div>
+        <span class="badge-y">${o.status.replace('_',' ')}</span>
+      </div>
+      <ul class="kitchen-items">
+        ${o.orders.map(item => `<li><span class="qty-badge">${item.quantity}x</span> ${item.name}</li>`).join('')}
+      </ul>
+      <button class="btn-done" onclick="markDone('${o.table}')">✅ FOOD READY — ${o.table}</button>
+    </div>`).join('');
+}
+
+async function markDone(table) {
+  const r = await fetch(BASE+'/api/staff/kitchen-done', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:SLUG, phone:PHONE, pin:PIN, table})
+  });
+  const d = await r.json();
+  showToast(d.success ? `${table} — Customer notified!` : 'Error', d.success ? 'success' : 'error');
+  if (d.success) loadKitchen();
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────────────
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  document.getElementById('t-icon').textContent = type==='success' ? '✅' : '❌';
+  document.getElementById('t-msg').textContent = msg;
+  t.className = 'toast show';
+  setTimeout(() => t.className='toast', 3000);
+}
+</script>
+</body>
+</html>
