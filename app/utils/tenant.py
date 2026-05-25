@@ -32,6 +32,7 @@ class TenantConfig:
     upi_name:           str
     razorpay_key_id:    str
     razorpay_key_secret:str
+    razorpay_webhook_secret: str
     table_count:        int
     table_prefix:       str
     table_secrets:      dict
@@ -53,6 +54,8 @@ class TenantConfig:
     primary_color:      str
     welcome_message:    str
     banner_image:       str
+    # Compliance
+    gstin:              str = ""
 
     def is_festival_today(self) -> bool:
         if not self.festival_active:
@@ -123,6 +126,7 @@ def load_tenant(slug: str) -> TenantConfig:
         upi_name           = client.upi_name or "",
         razorpay_key_id    = client.razorpay_key_id or "",
         razorpay_key_secret= client.razorpay_key_secret or "",
+        razorpay_webhook_secret = (getattr(client, "razorpay_webhook_secret", "") or ""),
         table_count        = client.table_count or 10,
         table_prefix       = client.table_prefix or "T",
         table_secrets      = secrets,
@@ -143,6 +147,7 @@ def load_tenant(slug: str) -> TenantConfig:
         primary_color      = client.primary_color or "#ff6b35",
         welcome_message    = client.welcome_message or "Welcome! Scan & Order",
         banner_image       = client.banner_image or "",
+        gstin              = (getattr(client, "gstin", "") or ""),
     )
 
     _cache[slug] = cfg

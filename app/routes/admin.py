@@ -13,6 +13,7 @@ from typing import Optional
 
 from app.models.database import MasterSession, Client, setup_tenant_db
 from app.utils.tenant import invalidate_cache
+from app.utils.audit import audit, list_audit
 
 router = APIRouter()
 
@@ -40,11 +41,13 @@ class ClientCreate(BaseModel):
     upi_name:            str = ""
     razorpay_key_id:     str = ""
     razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
     table_count:         int = 10
     table_prefix:        str = "T"
     table_secrets:       dict = {}
     max_session_hours:   int = 2
     gst_rate:            float = 0.05
+    gstin:               str = ""
     session_ttl:         int = 10800
     premium_threshold:   int = 2
     cleanup_minutes:     int = 30
@@ -72,8 +75,12 @@ class ClientUpdate(BaseModel):
     staff_kitchen:       Optional[str] = None
     upi_id:              Optional[str] = None
     upi_name:            Optional[str] = None
+    razorpay_key_id:     Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
     table_count:         Optional[int] = None
     gst_rate:            Optional[float] = None
+    gstin:               Optional[str] = None
     festival_active:     Optional[bool] = None
     festival_name:       Optional[str] = None
     festival_start:      Optional[str] = None
@@ -147,9 +154,11 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
             payment_method=data.payment_method, upi_id=data.upi_id,
             upi_name=data.upi_name, razorpay_key_id=data.razorpay_key_id,
             razorpay_key_secret=data.razorpay_key_secret,
+            razorpay_webhook_secret=data.razorpay_webhook_secret,
             table_count=data.table_count, table_prefix=data.table_prefix,
             table_secrets=json.dumps(data.table_secrets),
             max_session_hours=data.max_session_hours, gst_rate=data.gst_rate,
+            gstin=data.gstin,
             session_ttl=data.session_ttl, premium_threshold=data.premium_threshold,
             cleanup_minutes=data.cleanup_minutes, festival_active=data.festival_active,
             festival_name=data.festival_name, festival_emoji=data.festival_emoji,
@@ -169,6 +178,11 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
         # Create tenant DB tables automatically
         setup_tenant_db(data.tenant_db_url, data.slug)
 
+        audit("client.create", actor="admin", actor_role="superadmin",
+              slug=data.slug, target=data.slug,
+              payload={"restaurant_name": data.restaurant_name,
+                       "table_count": data.table_count})
+
         return JSONResponse({"success": True, "message": f"Client '{data.slug}' created!", "slug": data.slug})
     finally:
         db.close()
@@ -176,7 +190,7 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
 
 # ── Update client ─────────────────────────────────────────────────────────────
 @router.patch("/admin/clients/{slug}")
-async def update_client(slug: str, data: ClientUpdate, x_admin_secret: str = Header(...)):
+async def update_client(slug: str, data: ClientUpdate, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     db = MasterSession()
     try:
@@ -184,10 +198,15 @@ async def update_client(slug: str, data: ClientUpdate, x_admin_secret: str = Hea
         if not c:
             raise HTTPException(status_code=404, detail="Client not found")
 
-        for field, value in data.model_dump(exclude_none=True).items():
+        changes = data.model_dump(exclude_none=True)
+        for field, value in changes.items():
             setattr(c, field, value)
         db.commit()
         invalidate_cache(slug)  # Clear cache so next request gets fresh config
+
+        audit("client.update", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug,
+              payload={"changed_fields": list(changes.keys())}, request=request)
 
         return JSONResponse({"success": True, "message": f"Client '{slug}' updated"})
     finally:
@@ -196,7 +215,7 @@ async def update_client(slug: str, data: ClientUpdate, x_admin_secret: str = Hea
 
 # ── Toggle active ─────────────────────────────────────────────────────────────
 @router.post("/admin/clients/{slug}/deactivate")
-async def deactivate_client(slug: str, x_admin_secret: str = Header(...)):
+async def deactivate_client(slug: str, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     db = MasterSession()
     try:
@@ -204,13 +223,15 @@ async def deactivate_client(slug: str, x_admin_secret: str = Header(...)):
         if not c: raise HTTPException(status_code=404)
         c.active = False; db.commit()
         invalidate_cache(slug)
+        audit("client.deactivate", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug, request=request)
         return JSONResponse({"success": True, "message": f"'{slug}' deactivated"})
     finally:
         db.close()
 
 
 @router.post("/admin/clients/{slug}/activate")
-async def activate_client(slug: str, x_admin_secret: str = Header(...)):
+async def activate_client(slug: str, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     db = MasterSession()
     try:
@@ -218,6 +239,8 @@ async def activate_client(slug: str, x_admin_secret: str = Header(...)):
         if not c: raise HTTPException(status_code=404)
         c.active = True; db.commit()
         invalidate_cache(slug)
+        audit("client.activate", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug, request=request)
         return JSONResponse({"success": True, "message": f"'{slug}' activated"})
     finally:
         db.close()
@@ -235,7 +258,10 @@ async def list_staff(slug: str, x_admin_secret: str = Header(...)):
     from app.models.database import StaffMember
     db = MasterSession()
     try:
-        members = db.query(StaffMember).filter(StaffMember.slug == slug).all()
+        members = (db.query(StaffMember)
+                     .filter(StaffMember.slug == slug, StaffMember.active == True)
+                     .order_by(StaffMember.id.desc())
+                     .all())
         return JSONResponse([{
             "id": m.id, "phone": m.phone, "name": m.name,
             "role": m.role, "pin": m.pin, "active": m.active
@@ -244,19 +270,23 @@ async def list_staff(slug: str, x_admin_secret: str = Header(...)):
         db.close()
 
 @router.post("/admin/clients/{slug}/staff")
-async def add_staff(slug: str, data: StaffCreate, x_admin_secret: str = Header(...)):
+async def add_staff(slug: str, data: StaffCreate, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from app.models.database import StaffMember
     db = MasterSession()
     try:
         member = StaffMember(slug=slug, phone=data.phone, name=data.name, role=data.role, pin=data.pin, active=True)
         db.add(member); db.commit()
+        audit("staff.create", actor="admin", actor_role="superadmin",
+              slug=slug, target=str(member.id),
+              payload={"name": data.name, "role": data.role, "phone": data.phone},
+              request=request)
         return JSONResponse({"success": True, "message": f"Staff '{data.name}' added"})
     finally:
         db.close()
 
 @router.patch("/admin/clients/{slug}/staff/{staff_id}")
-async def update_staff(slug: str, staff_id: int, data: StaffCreate, x_admin_secret: str = Header(...)):
+async def update_staff(slug: str, staff_id: int, data: StaffCreate, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from app.models.database import StaffMember
     db = MasterSession()
@@ -265,19 +295,32 @@ async def update_staff(slug: str, staff_id: int, data: StaffCreate, x_admin_secr
         if not m: raise HTTPException(status_code=404)
         m.phone = data.phone; m.name = data.name; m.role = data.role; m.pin = data.pin
         db.commit()
+        audit("staff.update", actor="admin", actor_role="superadmin",
+              slug=slug, target=str(staff_id),
+              payload={"name": data.name, "role": data.role}, request=request)
         return JSONResponse({"success": True, "message": "Staff updated"})
     finally:
         db.close()
 
 @router.delete("/admin/clients/{slug}/staff/{staff_id}")
-async def delete_staff(slug: str, staff_id: int, x_admin_secret: str = Header(...)):
+async def delete_staff(slug: str, staff_id: int, request: Request, x_admin_secret: str = Header(...)):
+    """Soft delete — set active=False and stamp deleted_at. Row is preserved for history."""
     _auth(x_admin_secret)
     from app.models.database import StaffMember
+    from sqlalchemy import func as sqlfunc
     db = MasterSession()
     try:
         m = db.query(StaffMember).filter(StaffMember.id == staff_id, StaffMember.slug == slug).first()
         if not m: raise HTTPException(status_code=404)
-        db.delete(m); db.commit()
+        m.active = False
+        try:
+            m.deleted_at = sqlfunc.now()
+        except Exception:
+            pass  # column not yet migrated — soft-delete via active=False is enough
+        db.commit()
+        audit("staff.delete", actor="admin", actor_role="superadmin",
+              slug=slug, target=str(staff_id),
+              payload={"name": m.name, "role": m.role}, request=request)
         return JSONResponse({"success": True})
     finally:
         db.close()
@@ -343,47 +386,83 @@ async def admin_get_menu(slug: str, x_admin_secret: str = Header(...)):
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         rows = db.execute(sqlt("SELECT * FROM menu ORDER BY category, name")).fetchall()
-    return JSONResponse([dict(r._mapping) for r in rows])
+    out = []
+    for r in rows:
+        d = dict(r._mapping)
+        # normalize for frontend
+        d["gst_rate"] = float(d["gst_rate"]) if d.get("gst_rate") is not None else None
+        d["dietary_tags"] = [t.strip() for t in (d.get("dietary_tags") or "").split(",") if t.strip()]
+        out.append(d)
+    return JSONResponse(out)
 
 
 class AdminMenuItem(BaseModel):
     name: str; category: str = "Main Course"; price: float
     available: str = "Yes"; type: str = "veg"
     image: str = ""; description: str = ""; bestseller: str = "no"
+    gst_rate: Optional[float] = None        # null → use client default
+    dietary_tags: list[str] = []            # ["jain","vegan","glutenfree","egg","spicy"]
+
+
+def _tags_to_csv(tags) -> str:
+    if isinstance(tags, str):
+        parts = tags.split(",")
+    else:
+        parts = list(tags or [])
+    cleaned = []
+    seen = set()
+    for t in parts:
+        v = str(t).strip().lower().replace(" ", "")
+        if v and v not in seen:
+            seen.add(v); cleaned.append(v)
+    return ",".join(cleaned)
+
 
 @router.post("/admin/clients/{slug}/menu")
-async def admin_add_menu_item(slug: str, body: AdminMenuItem, x_admin_secret: str = Header(...)):
+async def admin_add_menu_item(slug: str, body: AdminMenuItem, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     cfg = load_tenant(slug)
+    tags = _tags_to_csv(body.dietary_tags)
     with cfg.db_session() as db:
-        db.execute(sqlt(
-            "INSERT INTO menu (name,category,price,available,type,image,description,bestseller) "
-            "VALUES (:n,:cat,:p,:av,:t,:img,:desc,:best)"
+        result = db.execute(sqlt(
+            "INSERT INTO menu (name,category,price,available,type,image,description,bestseller,gst_rate,dietary_tags) "
+            "VALUES (:n,:cat,:p,:av,:t,:img,:desc,:best,:gst,:tags) RETURNING id"
         ), {"n":body.name,"cat":body.category,"p":body.price,"av":body.available,
-            "t":body.type,"img":body.image,"desc":body.description,"best":body.bestseller})
+            "t":body.type,"img":body.image,"desc":body.description,"best":body.bestseller,
+            "gst":body.gst_rate,"tags":tags})
+        new_id = result.scalar()
         db.commit()
-    return JSONResponse({"success": True, "message": "Item added"})
+    audit("menu.create", actor="admin", actor_role="superadmin", slug=slug,
+          target=str(new_id), payload={"name": body.name, "price": body.price}, request=request)
+    return JSONResponse({"success": True, "message": "Item added", "id": new_id})
 
 @router.patch("/admin/clients/{slug}/menu/{item_id}")
-async def admin_update_menu_item(slug: str, item_id: int, body: AdminMenuItem, x_admin_secret: str = Header(...)):
+async def admin_update_menu_item(slug: str, item_id: int, body: AdminMenuItem, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     cfg = load_tenant(slug)
+    tags = _tags_to_csv(body.dietary_tags)
     with cfg.db_session() as db:
         db.execute(sqlt(
             "UPDATE menu SET name=:n,category=:cat,price=:p,available=:av,type=:t,"
-            "image=:img,description=:desc,bestseller=:best WHERE id=:id"
+            "image=:img,description=:desc,bestseller=:best,gst_rate=:gst,dietary_tags=:tags "
+            "WHERE id=:id"
         ), {"n":body.name,"cat":body.category,"p":body.price,"av":body.available,
-            "t":body.type,"img":body.image,"desc":body.description,"best":body.bestseller,"id":item_id})
+            "t":body.type,"img":body.image,"desc":body.description,"best":body.bestseller,
+            "gst":body.gst_rate,"tags":tags,"id":item_id})
         db.commit()
+    audit("menu.update", actor="admin", actor_role="superadmin", slug=slug,
+          target=str(item_id), payload={"name": body.name}, request=request)
     return JSONResponse({"success": True})
 
 @router.delete("/admin/clients/{slug}/menu/{item_id}")
-async def admin_delete_menu_item(slug: str, item_id: int, x_admin_secret: str = Header(...)):
+async def admin_delete_menu_item(slug: str, item_id: int, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         db.execute(sqlt("DELETE FROM menu WHERE id=:id"), {"id": item_id})
         db.commit()
+    audit("menu.delete", actor="admin", actor_role="superadmin", slug=slug,
+          target=str(item_id), request=request)
     return JSONResponse({"success": True})
 
 
@@ -695,11 +774,14 @@ async def admin_get_full_settings(slug: str, x_admin_secret: str = Header(...)):
             "upi_id":            c.upi_id or "",
             "upi_name":          c.upi_name or "",
             "razorpay_key_id":   c.razorpay_key_id or "",
+            "razorpay_key_secret": getattr(c, "razorpay_key_secret", "") or "",
+            "razorpay_webhook_secret": getattr(c, "razorpay_webhook_secret", "") or "",
             "table_count":       c.table_count or 10,
             "table_prefix":      c.table_prefix or "T",
             "table_secrets":     secrets,
             "max_session_hours": c.max_session_hours or 2,
             "gst_rate":          float(c.gst_rate or 0.05),
+            "gstin":             getattr(c, "gstin", "") or "",
             "session_ttl":       c.session_ttl or 10800,
             "premium_threshold": c.premium_threshold or 2,
             "cleanup_minutes":   c.cleanup_minutes or 30,
@@ -738,9 +820,11 @@ class AdminFullSettings(BaseModel):
     upi_name:           Optional[str] = None
     razorpay_key_id:    Optional[str] = None
     razorpay_key_secret: Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
     table_count:        Optional[int] = None
     max_session_hours:  Optional[int] = None
     gst_rate:           Optional[float] = None
+    gstin:              Optional[str] = None
     session_ttl:        Optional[int] = None
     premium_threshold:  Optional[int] = None
     cleanup_minutes:    Optional[int] = None
@@ -760,6 +844,7 @@ class AdminFullSettings(BaseModel):
 
 @router.patch("/admin/clients/{slug}/full-settings")
 async def admin_update_full_settings(slug: str, body: AdminFullSettings,
+                                      request: Request,
                                       x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     db = MasterSession()
@@ -767,10 +852,18 @@ async def admin_update_full_settings(slug: str, body: AdminFullSettings,
         c = db.query(Client).filter(Client.slug == slug).first()
         if not c:
             raise HTTPException(status_code=404, detail="Client not found")
-        for field, value in body.model_dump(exclude_none=True).items():
+        changes = body.model_dump(exclude_none=True)
+        # Mask secrets in audit payload — never log full secret values
+        audit_payload = {
+            k: ("***" if "secret" in k or "password" in k else v)
+            for k, v in changes.items()
+        }
+        for field, value in changes.items():
             setattr(c, field, value)
         db.commit()
         invalidate_cache(slug)
+        audit("client.full_settings.update", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug, payload=audit_payload, request=request)
         return JSONResponse({"success": True, "message": "Settings updated"})
     finally:
         db.close()
@@ -901,17 +994,22 @@ class AdminTableAction(BaseModel):
 
 @router.post("/admin/clients/{slug}/free-table")
 async def admin_free_table(slug: str, body: AdminTableAction,
+                            request: Request,
                             x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from app.utils import redis_client as rc
     cust_phone = rc.get_table_phone(slug, body.table)
     if cust_phone:
         rc.clear_customer(slug, cust_phone, body.table)
+    audit("ops.free_table", actor="admin", actor_role="superadmin",
+          slug=slug, target=body.table,
+          payload={"phone": cust_phone}, request=request)
     return JSONResponse({"success": True, "message": f"Table {body.table} freed"})
 
 
 @router.post("/admin/clients/{slug}/cash-confirm")
 async def admin_cash_confirm(slug: str, body: AdminPhoneAction,
+                              request: Request,
                               x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from datetime import datetime
@@ -939,21 +1037,25 @@ async def admin_cash_confirm(slug: str, body: AdminPhoneAction,
     now_ist   = datetime.now(IST)
     items_str = ", ".join(f"{o['quantity']}x {o['name']}" for o in orders)
     order_id  = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}"
+    customer_gstin = session.get("customer_gstin", "")
     with cfg.db_session() as db:
         db.execute(sqlt("""
             INSERT INTO orders (order_id,date,date_only,customer_name,phone,table_name,
-            items,subtotal,tax,total,payment_method,status,billed)
-            VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,'Cash','Paid',FALSE)
+            items,subtotal,tax,total,payment_method,status,billed,customer_gstin)
+            VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,'Cash','Paid',FALSE,:gstin)
         """), {"oid": order_id, "date": now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
                 "donly": now_ist.strftime("%-d/%-m/%Y"), "name": name,
                 "phone": body.cust_phone, "table": table, "items": items_str,
-                "sub": sub, "tax": tax, "total": total})
+                "sub": sub, "tax": tax, "total": total, "gstin": customer_gstin})
         db.commit()
     await wa.send_text(cfg, body.cust_phone,
         f"✅ *Payment Confirmed!*\n👤 {name} | 🪑 {table}\n"
         f"💰 ₹{total:.0f} (Cash)\n\nThank you! 🙏")
     await wa.send_all_staff(cfg,
         f"✅ Cash confirmed (admin): {name} | {table} | ₹{total:.0f}")
+    audit("payment.confirm.cash", actor="admin", actor_role="superadmin",
+          slug=slug, target=order_id,
+          payload={"phone": body.cust_phone, "table": table, "total": total}, request=request)
     return JSONResponse({"success": True, "total": total})
 
 
@@ -1004,3 +1106,26 @@ async def admin_change_password(body: AdminPasswordChange,
                    "config (e.g. Coolify env vars) and restart the service.",
         "next_steps": "Set ADMIN_SECRET to your new value in the deployment environment.",
     })
+
+
+
+# ── Audit log read API ─────────────────────────────────────────────────────
+@router.get("/admin/audit-log")
+async def admin_audit_log(
+    request: Request,
+    slug: Optional[str] = None,
+    action_prefix: Optional[str] = None,
+    limit: int = 200,
+    x_admin_secret: str = Header(...),
+):
+    """
+    Returns the most recent audit-log entries (newest first).
+    Filters: ?slug=whiteSugar  ?action_prefix=client.  ?limit=500
+    """
+    _auth(x_admin_secret)
+    rows = list_audit(
+        slug=slug if slug else None,
+        action_prefix=action_prefix if action_prefix else None,
+        limit=max(1, min(int(limit or 200), 1000)),
+    )
+    return JSONResponse(rows)

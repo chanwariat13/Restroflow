@@ -225,6 +225,7 @@ select.ti{appearance:none;}
     <button class="sb-item" data-page="restaurants" onclick="nav('restaurants')"><span class="ico">🏪</span> All Restaurants</button>
     <button class="sb-item" data-page="orders" onclick="nav('orders')"><span class="ico">🧾</span> All Orders</button>
     <button class="sb-item" data-page="customers" onclick="nav('customers')"><span class="ico">👥</span> All Customers</button>
+    <button class="sb-item" data-page="audit" onclick="nav('audit')"><span class="ico">📜</span> Audit Log</button>
 
     <div class="sb-section">Operations</div>
     <button class="sb-item" data-page="add" onclick="nav('add')"><span class="ico">➕</span> Add New Restaurant</button>
@@ -295,6 +296,22 @@ select.ti{appearance:none;}
       <div id="all-customers-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
     </section>
 
+    <!-- ╔═════════════ AUDIT LOG ═════════════╗ -->
+    <section class="page" id="page-audit">
+      <div class="page-header">
+        <div>
+          <div class="page-title">📜 Audit Log</div>
+          <div class="page-subtitle">Append-only record of every privileged action across all clients</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="ti" id="audit-slug" placeholder="filter by slug (optional)" style="width:170px">
+          <input class="ti" id="audit-prefix" placeholder="action prefix (e.g. menu.)" style="width:170px">
+          <button class="btn ghost sm" onclick="loadAudit()">↻ Refresh</button>
+        </div>
+      </div>
+      <div id="audit-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
+    </section>
+
     <!-- ╔═════════════ ADD NEW RESTAURANT ═════════════╗ -->
     <section class="page" id="page-add">
       <div class="page-header">
@@ -347,12 +364,21 @@ select.ti{appearance:none;}
             <div class="fg"><label>UPI ID</label><input class="ti" id="f-upi" placeholder="paytm.s11ivit@pty"></div>
           </div>
           <div class="fg"><label>UPI Display Name</label><input class="ti" id="f-upi-name" placeholder="White Sugar Restro Cafe"></div>
+          <div class="form-row">
+            <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="f-rzp-key" placeholder="rzp_live_XXXX"></div>
+            <div class="fg"><label>Razorpay Key Secret</label><input class="ti" id="f-rzp-secret" type="password" placeholder="API secret"></div>
+          </div>
+          <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for safe payments</span></label>
+            <input class="ti" id="f-rzp-webhook" placeholder="Set this in Razorpay Dashboard → Webhooks">
+            <div class="hint">Without this, the payment webhook will refuse all events to prevent fraud.</div>
+          </div>
         </div>
         <div class="form-section">
-          <div class="fs-title">🪑 Tables & Settings</div>
-          <div class="form-row">
+          <div class="fs-title">🪑 Tables & Tax</div>
+          <div class="form-row three">
             <div class="fg"><label>Number of Tables</label><input class="ti" id="f-tables" type="number" value="10"></div>
-            <div class="fg"><label>GST Rate (%)</label><input class="ti" id="f-gst" type="number" value="5"></div>
+            <div class="fg"><label>Default GST Rate (%)</label><input class="ti" id="f-gst" type="number" value="5"></div>
+            <div class="fg"><label>Restaurant GSTIN (B2B invoices)</label><input class="ti" id="f-gstin" placeholder="22AAAAA0000A1Z5"></div>
           </div>
         </div>
         <div class="form-section">
@@ -500,6 +526,18 @@ select.ti{appearance:none;}
       <div class="fg"><label>Available</label><select class="ti" id="mi-avail"><option value="Yes">✅ Yes</option><option value="No">❌ No</option></select></div>
       <div class="fg"><label>Bestseller</label><select class="ti" id="mi-best"><option value="no">No</option><option value="yes">⭐ Yes</option></select></div>
     </div>
+    <div class="form-row">
+      <div class="fg"><label>GST % (blank → use restaurant default)</label><input class="ti" id="mi-gst" type="number" step="0.01" placeholder="e.g. 5 or 18"></div>
+      <div class="fg"><label>Dietary Tags</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 0">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t2);background:var(--surface2);padding:5px 10px;border-radius:8px;border:1px solid var(--border)"><input type="checkbox" class="mi-tag" value="jain"> Jain</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t2);background:var(--surface2);padding:5px 10px;border-radius:8px;border:1px solid var(--border)"><input type="checkbox" class="mi-tag" value="vegan"> Vegan</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t2);background:var(--surface2);padding:5px 10px;border-radius:8px;border:1px solid var(--border)"><input type="checkbox" class="mi-tag" value="glutenfree"> Gluten-Free</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t2);background:var(--surface2);padding:5px 10px;border-radius:8px;border:1px solid var(--border)"><input type="checkbox" class="mi-tag" value="egg"> Contains Egg</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--t2);background:var(--surface2);padding:5px 10px;border-radius:8px;border:1px solid var(--border)"><input type="checkbox" class="mi-tag" value="spicy"> 🌶 Spicy</label>
+        </div>
+      </div>
+    </div>
     <div class="fg"><label>Description</label><input class="ti" id="mi-desc" placeholder="Short description"></div>
     <div class="fg"><label>Image URL</label><input class="ti" id="mi-img" placeholder="https://..."></div>
     <div class="m-foot"><button class="btn" onclick="closeM('menu-modal')">Cancel</button><button class="btn primary" onclick="saveMenuItem()">Save</button></div>
@@ -597,6 +635,7 @@ function nav(page) {
   if (page === 'restaurants')  loadRestaurants();
   if (page === 'orders')       loadAllOrders();
   if (page === 'customers')    loadAllCustomers();
+  if (page === 'audit')        loadAudit();
   if (page === 'add')          resetAddForm();
 }
 
@@ -726,10 +765,43 @@ async function loadAllCustomers() {
     </tr>`).join('') + '</table></div>';
 }
 
-/* ═══════════════════════ ADD RESTAURANT ═══════════════════════ */
+/* ═══════════════════════ AUDIT LOG ═══════════════════════ */
+async function loadAudit() {
+  $('audit-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const slug   = ($('audit-slug') ? $('audit-slug').value.trim() : '');
+  const prefix = ($('audit-prefix') ? $('audit-prefix').value.trim() : '');
+  const params = new URLSearchParams();
+  if (slug)   params.set('slug', slug);
+  if (prefix) params.set('action_prefix', prefix);
+  params.set('limit', '300');
+  const rows = await api('/admin/audit-log?' + params.toString());
+  if (!rows) return;
+  if (!rows.length) {
+    $('audit-container').innerHTML = '<div class="empty"><div class="ico">📜</div><div class="t">No audit entries yet</div><p>Audit entries are recorded automatically as soon as someone takes a privileged action.</p></div>';
+    return;
+  }
+  const fmtDate = s => s ? s.replace('T',' ').slice(0,19) : '';
+  const roleBadge = r => {
+    const colors = { superadmin:'o', owner:'b', manager:'b', staff:'g', customer:'g', system:'r' };
+    return `<span class="bdg ${colors[r]||'g'}">${r||'—'}</span>`;
+  };
+  $('audit-container').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>When</th><th>Slug</th><th>Actor</th><th>Role</th><th>Action</th><th>Target</th><th>Payload</th><th>IP</th></tr>' +
+    rows.map(r => `<tr>
+      <td style="font-size:11px;color:var(--muted);font-family:monospace">${fmtDate(r.created_at)}</td>
+      <td style="font-family:monospace;font-size:11px">${r.slug || '—'}</td>
+      <td>${r.actor || '—'}</td>
+      <td>${roleBadge(r.actor_role)}</td>
+      <td><b>${r.action || '—'}</b></td>
+      <td style="font-family:monospace;font-size:11px">${r.target || '—'}</td>
+      <td style="font-family:monospace;font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.payload||'').replace(/"/g,'&quot;')}">${r.payload || ''}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--muted)">${r.ip || '—'}</td>
+    </tr>`).join('') + '</table></div>';
+}
 function resetAddForm() {
   ['f-name','f-slug','f-logo','f-welcome','f-banner','f-evo-url','f-evo-key','f-evo-instance',
-   'f-owner','f-manager','f-kitchen','f-upi','f-upi-name','f-db','f-gotenberg','f-dash-pass']
+   'f-owner','f-manager','f-kitchen','f-upi','f-upi-name','f-db','f-gotenberg','f-dash-pass',
+   'f-rzp-key','f-rzp-secret','f-rzp-webhook','f-gstin']
     .forEach(id => $(id) && ($(id).value = ''));
   $('f-tables').value = '10'; $('f-gst').value = '5';
   $('f-color').value = '#ff6b35'; prevColor();
@@ -758,8 +830,12 @@ async function submitAdd(e) {
     staff_kitchen: $('f-kitchen').value.trim(),
     payment_method: $('f-payment').value,
     upi_id: $('f-upi').value.trim(), upi_name: $('f-upi-name').value.trim(),
+    razorpay_key_id: $('f-rzp-key') ? $('f-rzp-key').value.trim() : '',
+    razorpay_key_secret: $('f-rzp-secret') ? $('f-rzp-secret').value.trim() : '',
+    razorpay_webhook_secret: $('f-rzp-webhook') ? $('f-rzp-webhook').value.trim() : '',
     table_count: tableCount, table_secrets: tableSecrets,
     gst_rate: parseFloat($('f-gst').value || '5') / 100,
+    gstin: $('f-gstin') ? $('f-gstin').value.trim() : '',
     gotenberg_url: $('f-gotenberg').value.trim() || 'http://localhost:3000',
     tenant_db_url: $('f-db').value.trim(),
     dashboard_password: $('f-dash-pass').value.trim(),
@@ -931,22 +1007,31 @@ async function loadMenu() {
     return;
   }
   $('menu-content').innerHTML = '<div class="tbl-wrap"><table>' +
-    '<tr><th>Name</th><th>Category</th><th>Price</th><th>Type</th><th>Available</th><th>Actions</th></tr>' +
-    items.map(i => `<tr>
-      <td><b>${i.name}</b>${i.bestseller==='yes'?' ⭐':''}</td>
-      <td>${i.category}</td>
-      <td>${fmt(i.price)}</td>
-      <td>${i.type==='veg'?'🟢 Veg':'🔴 Non-Veg'}</td>
-      <td>${i.available==='Yes'?'<span class="bdg g">Yes</span>':'<span class="bdg r">No</span>'}</td>
-      <td><button class="btn sm" onclick='editMenuItem(${JSON.stringify(i)})'>Edit</button> <button class="btn danger sm" onclick="delMenuItem(${i.id})">Delete</button></td>
-    </tr>`).join('') + '</table></div>';
+    '<tr><th>Name</th><th>Category</th><th>Price</th><th>GST</th><th>Type</th><th>Tags</th><th>Available</th><th>Actions</th></tr>' +
+    items.map(i => {
+      const tags = Array.isArray(i.dietary_tags) ? i.dietary_tags : (typeof i.dietary_tags === 'string' ? i.dietary_tags.split(',').filter(Boolean) : []);
+      const tagEmoji = { jain:'🪷 Jain', vegan:'🌱 Vegan', glutenfree:'🌾 GF', egg:'🥚 Egg', spicy:'🌶 Spicy' };
+      const tagsHtml = tags.map(t => `<span class="bdg b" style="margin-right:3px">${tagEmoji[t]||t}</span>`).join('');
+      const gstStr = (i.gst_rate != null) ? (parseFloat(i.gst_rate) * 100).toFixed(0) + '%' : '<span style="color:var(--muted)">default</span>';
+      return `<tr>
+        <td><b>${i.name}</b>${i.bestseller==='yes'?' ⭐':''}</td>
+        <td>${i.category}</td>
+        <td>${fmt(i.price)}</td>
+        <td>${gstStr}</td>
+        <td>${i.type==='veg'?'🟢 Veg':'🔴 Non-Veg'}</td>
+        <td style="font-size:11px">${tagsHtml || '<span style="color:var(--muted)">—</span>'}</td>
+        <td>${i.available==='Yes'?'<span class="bdg g">Yes</span>':'<span class="bdg r">No</span>'}</td>
+        <td><button class="btn sm" onclick='editMenuItem(${JSON.stringify(i)})'>Edit</button> <button class="btn danger sm" onclick="delMenuItem(${i.id})">Delete</button></td>
+      </tr>`;
+    }).join('') + '</table></div>';
 }
 
 function openMenuItemModal() {
   $('mi-title').textContent = 'Add Menu Item';
   $('mi-id').value = '';
-  ['mi-name','mi-cat','mi-price','mi-desc','mi-img'].forEach(k => $(k).value = '');
+  ['mi-name','mi-cat','mi-price','mi-desc','mi-img','mi-gst'].forEach(k => $(k).value = '');
   $('mi-type').value = 'veg'; $('mi-avail').value = 'Yes'; $('mi-best').value = 'no';
+  document.querySelectorAll('.mi-tag').forEach(c => c.checked = false);
   openM('menu-modal');
 }
 function editMenuItem(i) {
@@ -954,13 +1039,20 @@ function editMenuItem(i) {
   $('mi-id').value = i.id; $('mi-name').value = i.name; $('mi-cat').value = i.category;
   $('mi-price').value = i.price; $('mi-type').value = i.type; $('mi-avail').value = i.available;
   $('mi-best').value = i.bestseller || 'no'; $('mi-desc').value = i.description || ''; $('mi-img').value = i.image || '';
+  $('mi-gst').value = (i.gst_rate != null) ? (parseFloat(i.gst_rate) * 100).toFixed(2).replace(/\.?0+$/,'') : '';
+  const tags = Array.isArray(i.dietary_tags) ? i.dietary_tags : (typeof i.dietary_tags === 'string' ? i.dietary_tags.split(',') : []);
+  document.querySelectorAll('.mi-tag').forEach(c => c.checked = tags.includes(c.value));
   openM('menu-modal');
 }
 async function saveMenuItem() {
   const id = $('mi-id').value;
+  const gstPct = $('mi-gst').value.trim();
+  const tags = Array.from(document.querySelectorAll('.mi-tag:checked')).map(c => c.value);
   const body = { name:$('mi-name').value.trim(), category:$('mi-cat').value.trim()||'Main Course',
     price:parseFloat($('mi-price').value), type:$('mi-type').value, available:$('mi-avail').value,
-    bestseller:$('mi-best').value, description:$('mi-desc').value.trim(), image:$('mi-img').value.trim() };
+    bestseller:$('mi-best').value, description:$('mi-desc').value.trim(), image:$('mi-img').value.trim(),
+    gst_rate: gstPct === '' ? null : (parseFloat(gstPct) / 100),
+    dietary_tags: tags };
   if (!body.name || !body.price) { toast('Name & price required','er'); return; }
   const url = id ? `/admin/clients/${curSlug}/menu/${id}` : `/admin/clients/${curSlug}/menu`;
   const r = await api(url, id ? 'PATCH' : 'POST', body);
@@ -1204,15 +1296,26 @@ async function loadSettings() {
         <div class="fg"><label>UPI ID</label><input class="ti" id="s-upi" value="${esc(s.upi_id)}"></div>
       </div>
       <div class="fg"><label>UPI Display Name</label><input class="ti" id="s-upi-name" value="${esc(s.upi_name)}"></div>
+      <div class="form-row">
+        <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="s-rzp-key" value="${esc(s.razorpay_key_id)}"></div>
+        <div class="fg"><label>Razorpay Key Secret</label><input class="ti" type="password" id="s-rzp-secret" value="${esc(s.razorpay_key_secret)}"></div>
+      </div>
+      <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for payment security</span></label>
+        <input class="ti" id="s-rzp-webhook" value="${esc(s.razorpay_webhook_secret)}" placeholder="From Razorpay Dashboard → Webhooks">
+        <div class="hint">Webhook signature is verified using HMAC-SHA256 of this secret. Without it, all payment events are rejected.</div>
+      </div>
     </div>
     <div class="form-section">
-      <div class="fs-title">🪑 Tables & Business</div>
+      <div class="fs-title">🪑 Tables, Tax & Compliance</div>
       <div class="form-row three">
         <div class="fg"><label>Tables</label><input class="ti" type="number" id="s-tables" value="${s.table_count}"></div>
-        <div class="fg"><label>GST (%)</label><input class="ti" type="number" id="s-gst" value="${Math.round((s.gst_rate||0)*100)}"></div>
+        <div class="fg"><label>Default GST (%)</label><input class="ti" type="number" id="s-gst" value="${Math.round((s.gst_rate||0)*100)}"></div>
         <div class="fg"><label>Premium Threshold</label><input class="ti" type="number" id="s-premium" value="${s.premium_threshold}"></div>
       </div>
-      <div class="fg"><label>Google Review URL</label><input class="ti" id="s-review" value="${esc(s.google_review_url)}"></div>
+      <div class="form-row">
+        <div class="fg"><label>Restaurant GSTIN (B2B invoice)</label><input class="ti" id="s-gstin" value="${esc(s.gstin)}" placeholder="22AAAAA0000A1Z5"></div>
+        <div class="fg"><label>Google Review URL</label><input class="ti" id="s-review" value="${esc(s.google_review_url)}"></div>
+      </div>
     </div>
     <div class="form-section">
       <div class="fs-title">🎉 Festival Mode</div>
@@ -1256,8 +1359,12 @@ async function saveSettings() {
     payment_method: $('s-payment').value,
     upi_id: $('s-upi').value.trim(),
     upi_name: $('s-upi-name').value.trim(),
+    razorpay_key_id: $('s-rzp-key') ? $('s-rzp-key').value.trim() : '',
+    razorpay_key_secret: $('s-rzp-secret') ? $('s-rzp-secret').value.trim() : '',
+    razorpay_webhook_secret: $('s-rzp-webhook') ? $('s-rzp-webhook').value.trim() : '',
     table_count: parseInt($('s-tables').value)||10,
     gst_rate: (parseFloat($('s-gst').value)||5)/100,
+    gstin: $('s-gstin') ? $('s-gstin').value.trim() : '',
     premium_threshold: parseInt($('s-premium').value)||2,
     google_review_url: $('s-review').value.trim(),
     festival_active: $('s-fest-active').value === 'true',

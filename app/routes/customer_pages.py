@@ -89,6 +89,7 @@ async def registration_page(slug: str):
       <input type="text" id="inp-name" placeholder="Enter your full name" maxlength="30">
       <label>WhatsApp Number</label>
       <input type="tel" id="inp-phone" placeholder="91XXXXXXXXXX (with country code)" maxlength="15">
+      <div id="welcome-back" style="display:none;background:{color}18;border:1px solid {color}44;color:{color};border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
       <button class="btn" id="reg-btn" onclick="register()">Send Request →</button>
       <div class="msg" id="msg"></div>
     </div>
@@ -131,6 +132,32 @@ async def registration_page(slug: str):
     el.textContent=text;el.className='msg '+type;el.style.display='block';
   }}
   document.getElementById('inp-phone').addEventListener('keydown',e=>{{if(e.key==='Enter')register()}});
+
+  // ── Returning-customer auto-fill ──────────────────────────────────────
+  // When the phone number reaches 10+ digits, ping the server. If the guest has
+  // visited before, pre-fill the name field and show a friendly "Welcome back!"
+  let _lookupTimer=null, _lastLookup='';
+  document.getElementById('inp-phone').addEventListener('input', function() {{
+    const phone=this.value.trim().replace(/\\D/g,'');
+    if(phone.length<10 || phone===_lastLookup) return;
+    clearTimeout(_lookupTimer);
+    _lookupTimer=setTimeout(async()=>{{
+      _lastLookup=phone;
+      try{{
+        const r=await fetch(BASE+'/webhook/'+SLUG+'/lookup-customer?phone='+encodeURIComponent(phone));
+        const d=await r.json();
+        const wb=document.getElementById('welcome-back');
+        const ni=document.getElementById('inp-name');
+        if(d && d.found && d.name){{
+          if(!ni.value || ni.value.trim().length<2) ni.value=d.name;
+          wb.textContent='👋 Welcome back, '+d.name+'! ('+d.visits+' visits)';
+          wb.style.display='block';
+        }} else {{
+          wb.style.display='none';
+        }}
+      }}catch(e){{ /* silent */ }}
+    }}, 350);
+  }});
 </script>
 </body>
 </html>""")

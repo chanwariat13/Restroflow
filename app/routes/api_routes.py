@@ -7,8 +7,11 @@ All remaining API routes — all multi-tenant via {slug} in URL.
   POST /webhook/{slug}/generate-bill
   POST /webhook/{slug}/deduct-inventory
   POST /webhook/{slug}/razorpay-webhook
+  GET  /webhook/{slug}/lookup-customer  → returning-guest auto-fill
 """
 import base64
+import json
+import logging
 import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -20,10 +23,13 @@ from sqlalchemy import text
 
 from app.utils.tenant import load_tenant, TenantConfig
 from app.utils import redis_client as rc
+from app.utils.security import verify_razorpay_signature
+from app.utils.audit import audit
 from app.services import whatsapp as wa
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
+logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════
@@ -45,12 +51,15 @@ async def get_menu(request: Request, slug: str = Path(...)):
     try:
         with cfg.db_session() as db:
             rows = db.execute(text(
-                "SELECT name, category, price, available, type, image, description, bestseller "
+                "SELECT name, category, price, available, type, image, description, bestseller, "
+                "       gst_rate, dietary_tags "
                 "FROM menu ORDER BY category, name"
             )).fetchall()
         menu = []
         for i, row in enumerate(rows):
             avail = str(row.available or "yes").lower()
+            tags = [t.strip() for t in (str(row.dietary_tags or "")).split(",") if t.strip()]
+            item_gst = float(row.gst_rate) if row.gst_rate is not None else None
             menu.append({
                 "id": str(i + 1), "name": row.name or "",
                 "category": row.category or "Other",
@@ -59,6 +68,8 @@ async def get_menu(request: Request, slug: str = Path(...)):
                 "type": (row.type or "veg").lower(),
                 "image": row.image or "", "description": row.description or "",
                 "bestseller": str(row.bestseller or "no").lower() == "yes",
+                "dietary_tags": tags,
+                "gst_rate": item_gst,
             })
     except Exception:
         menu = []
@@ -67,6 +78,41 @@ async def get_menu(request: Request, slug: str = Path(...)):
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "public, max-age=60"
     })
+
+
+# ══════════════════════════════════════════════════════
+# C2 — LOOKUP RETURNING CUSTOMER (auto-fill registration)
+# ══════════════════════════════════════════════════════
+@router.get("/webhook/{slug}/lookup-customer")
+async def lookup_customer(request: Request, slug: str = Path(...)):
+    """
+    Given ?phone=91XXXX, return whether this guest has visited before.
+    Used by the registration page to auto-fill the name field.
+    Always returns {found: bool, name: str, visits: int} — never errors.
+    """
+    cfg = load_tenant(slug)
+    phone = str(request.query_params.get("phone", "")).strip()
+    if not phone or len(phone) < 10 or not phone.isdigit():
+        return JSONResponse(
+            {"found": False, "name": "", "visits": 0},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    try:
+        with cfg.db_session() as db:
+            row = db.execute(text(
+                "SELECT name, total_visits FROM customers WHERE phone=:p LIMIT 1"
+            ), {"p": phone}).fetchone()
+        if row:
+            return JSONResponse(
+                {"found": True, "name": row.name or "", "visits": int(row.total_visits or 0)},
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
+    except Exception as e:
+        logger.warning(f"lookup_customer failed slug={slug} phone={phone}: {e}")
+    return JSONResponse(
+        {"found": False, "name": "", "visits": 0},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 
 # ══════════════════════════════════════════════════════
@@ -172,7 +218,7 @@ async def generate_bill(req: BillRequest, slug: str = Path(...)):
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT order_id, date, customer_name, phone, table_name, "
-            "items, subtotal, tax, total, payment_method "
+            "items, subtotal, tax, total, payment_method, customer_gstin "
             "FROM orders WHERE table_name=:t AND status='Paid' AND billed=FALSE AND date_only=:d "
             "ORDER BY date ASC"
         ), {"t": table, "d": today}).fetchall()
@@ -198,6 +244,26 @@ async def generate_bill(req: BillRequest, slug: str = Path(...)):
             f'<td style="text-align:right">&#8377;{float(o.get("total",0)):.2f}</td></tr>'
         )
 
+    # Customer GSTIN (B2B invoice) — pulled from any of today's orders for this table
+    customer_gstin = ""
+    for o in orders:
+        cg = (o.get("customer_gstin") or "").strip()
+        if cg:
+            customer_gstin = cg
+            break
+
+    seller_gstin = (cfg.gstin or "").strip()
+    invoice_kind = "TAX INVOICE" if seller_gstin else "Bill"
+
+    seller_gstin_html = (
+        f'<div style="font-size:11px;color:#666;margin-top:2px">GSTIN: {seller_gstin}</div>'
+        if seller_gstin else ""
+    )
+    customer_gstin_html = (
+        f'<div style="font-size:11px;color:#666"><b>Customer GSTIN:</b> {customer_gstin}</div>'
+        if customer_gstin else ""
+    )
+
     now_ist = datetime.now(IST).strftime("%d %b %Y, %I:%M %p")
     html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
@@ -206,6 +272,7 @@ body{{font-family:Arial,sans-serif;padding:32px 28px;color:#222;background:#fff}
 .hdr{{text-align:center;margin-bottom:20px;border-bottom:2px solid #222;padding-bottom:14px}}
 .hdr h1{{font-size:22px;font-weight:bold}}
 .hdr p{{font-size:12px;color:#666;margin-top:4px}}
+.kind{{font-size:11px;letter-spacing:2px;color:#888;margin-top:6px;text-transform:uppercase}}
 .info{{display:flex;justify-content:space-between;font-size:13px;margin-bottom:16px}}
 table{{width:100%;border-collapse:collapse;margin-top:4px}}
 th{{background:#222;color:#fff;padding:8px 10px;font-size:12px;text-align:left}}
@@ -219,9 +286,10 @@ td{{padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-ali
 .grand td{{font-size:16px;font-weight:bold;border-top:2px solid #222;padding-top:8px}}
 .ftr{{text-align:center;margin-top:28px;font-size:11px;color:#aaa;border-top:1px dashed #ddd;padding-top:14px}}
 </style></head><body>
-<div class="hdr"><h1>{cfg.restaurant_name}</h1><p>Thank you for dining with us!</p></div>
+<div class="hdr"><h1>{cfg.restaurant_name}</h1>{seller_gstin_html}<p>Thank you for dining with us!</p>
+<div class="kind">{invoice_kind}</div></div>
 <div class="info">
-  <div><b>Table:</b> {table} &nbsp; <b>Customer:</b> {customer}</div>
+  <div><b>Table:</b> {table} &nbsp; <b>Customer:</b> {customer}{customer_gstin_html}</div>
   <div style="font-size:11px;color:#aaa"><b>Date:</b> {now_ist}</div>
 </div>
 <table>
@@ -270,22 +338,25 @@ class DeductRequest(BaseModel):
 
 @router.post("/webhook/{slug}/deduct-inventory")
 async def deduct_inventory(req: DeductRequest, slug: str = Path(...)):
+    """
+    Deducts inventory based on menu_ingredients × order quantity.
+    SECURITY: Uses parameterized queries — item names are never interpolated into SQL.
+    """
     cfg = load_tenant(slug)
     if not req.items:
         return JSONResponse({"success": False, "message": "No items"})
 
     with cfg.db_session() as db:
         for item in req.items:
-            safe = item.name.replace("'", "''")
-            db.execute(text(f"""
+            db.execute(text("""
                 UPDATE inventory inv
-                SET current_stock = inv.current_stock - (mi.quantity_used * {item.quantity}),
+                SET current_stock = inv.current_stock - (mi.quantity_used * :qty),
                     updated_at = NOW()
                 FROM menu_ingredients mi
-                WHERE mi.menu_item = '{safe}'
+                WHERE mi.menu_item = :item_name
                   AND mi.ingredient = inv.item_name
-                  AND inv.current_stock >= (mi.quantity_used * {item.quantity})
-            """))
+                  AND inv.current_stock >= (mi.quantity_used * :qty)
+            """), {"qty": int(item.quantity), "item_name": item.name})
         db.commit()
 
         low = db.execute(text(
@@ -300,12 +371,49 @@ async def deduct_inventory(req: DeductRequest, slug: str = Path(...)):
 
 
 # ══════════════════════════════════════════════════════
-# I — RAZORPAY WEBHOOK
+# I — RAZORPAY WEBHOOK (signature-verified)
 # ══════════════════════════════════════════════════════
 @router.post("/webhook/{slug}/razorpay-webhook")
 async def razorpay_webhook(request: Request, background_tasks: BackgroundTasks, slug: str = Path(...)):
-    body = await request.json()
-    cfg  = load_tenant(slug)
+    """
+    Razorpay POSTs the raw event JSON here, plus an X-Razorpay-Signature header
+    that is HMAC_SHA256(webhook_secret, raw_body).hexdigest().
+
+    SECURITY: We require a valid signature before processing. If the client has not
+    yet configured a webhook secret, we still REJECT the request rather than process
+    an unauthenticated payload. Configure razorpay_webhook_secret in admin → Settings.
+    """
+    raw = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "") or request.headers.get("x-razorpay-signature", "")
+
+    cfg = load_tenant(slug)
+    secret = (
+        getattr(cfg, "razorpay_webhook_secret", "") or ""
+    ).strip()
+
+    if not secret:
+        # No secret configured — refuse rather than process unauthenticated.
+        audit("razorpay.webhook.rejected_no_secret", actor_role="system", slug=slug,
+              target="razorpay", payload={"reason": "razorpay_webhook_secret not configured"},
+              request=request)
+        return JSONResponse(
+            {"error": "Webhook secret not configured for this tenant. "
+                      "Set razorpay_webhook_secret in admin settings."},
+            status_code=503,
+        )
+
+    if not verify_razorpay_signature(raw, signature, secret):
+        audit("razorpay.webhook.rejected_bad_signature", actor_role="system", slug=slug,
+              target="razorpay", payload={"sig_present": bool(signature)}, request=request)
+        return JSONResponse({"error": "Invalid signature"}, status_code=401)
+
+    try:
+        body = json.loads(raw)
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    audit("razorpay.webhook.accepted", actor_role="system", slug=slug,
+          target=str(body.get("event", "")), payload={"id": body.get("id", "")}, request=request)
     background_tasks.add_task(_process_razorpay, cfg, body)
     return JSONResponse({"status": "ok"})
 
