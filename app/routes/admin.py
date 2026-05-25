@@ -6,7 +6,7 @@ This is how you onboard new restaurants — just one API call.
 """
 import json
 import os
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
