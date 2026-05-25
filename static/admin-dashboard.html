@@ -3,111 +3,197 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RestroFlow — Admin Dashboard</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<title>RestroFlow — Master Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0a0a0f;--surface:#13131a;--surface2:#1c1c26;--border:#2a2a38;--accent:#ff6b35;--accent2:#ffd166;--green:#06d6a0;--red:#ef4444;--blue:#60a5fa;--text:#f0f0f5;--muted:#8888a0;}
+:root{
+  --bg:#08080d;--surface:#11111a;--surface2:#1a1a26;--surface3:#22222e;
+  --border:#2a2a38;--border2:#3a3a48;
+  --accent:#ff6b35;--accent2:#ffd166;--accent-grad:linear-gradient(135deg,#ff6b35,#ffd166);
+  --green:#06d6a0;--red:#ef4444;--blue:#60a5fa;--purple:#a78bfa;
+  --text:#f0f0f5;--t2:#a0a0b8;--muted:#6b6b80;
+}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
-/* LOGIN */
+
+/* ── LOGIN ─────────────────────────────────────────────────── */
 #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 60% 40%,#1a1020,var(--bg) 70%);}
 .login-box{background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:48px;width:400px;text-align:center;}
-.login-logo{font-family:'Syne',sans-serif;font-size:32px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;}
-.login-sub{color:var(--muted);font-size:14px;margin-bottom:36px;}
-.login-box input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--text);font-size:15px;font-family:'DM Sans',sans-serif;outline:none;margin-bottom:16px;transition:border-color 0.2s;}
+.login-logo{font-family:'Syne',sans-serif;font-size:36px;font-weight:800;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px;}
+.login-sub{color:var(--t2);font-size:14px;margin-bottom:36px;}
+.login-box input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;color:var(--text);font-size:15px;font-family:inherit;outline:none;margin-bottom:16px;transition:border-color .2s;}
 .login-box input:focus{border-color:var(--accent);}
-.btn-primary{width:100%;background:linear-gradient(135deg,var(--accent),#ff8c5a);border:none;border-radius:12px;padding:14px;color:white;font-size:15px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;}
-.btn-primary:hover{opacity:0.9;}
-.error-msg{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px;display:none;}
-/* DASHBOARD */
-#dashboard{display:none;}
-.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;height:64px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
-.topbar-logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
-.badge{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:13px;color:var(--muted);}
-.btn-logout{background:transparent;border:1px solid var(--border);border-radius:10px;padding:8px 16px;color:var(--muted);font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;}
-.btn-logout:hover{border-color:var(--accent);color:var(--accent);}
-.main{padding:32px;max-width:1300px;margin:0 auto;}
-.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;}
-.page-title{font-family:'Syne',sans-serif;font-size:28px;font-weight:700;}
-.page-subtitle{color:var(--muted);font-size:14px;margin-top:4px;}
-.btn-add{background:linear-gradient(135deg,var(--accent),#ff8c5a);border:none;border-radius:12px;padding:12px 24px;color:white;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;display:flex;align-items:center;gap:8px;}
-.btn-add:hover{opacity:0.9;}
-/* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:32px;}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;}
-.stat-label{color:var(--muted);font-size:13px;margin-bottom:8px;}
-.stat-value{font-family:'Syne',sans-serif;font-size:36px;font-weight:700;}
+.error-msg{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px;display:none;}
+
+/* ── LAYOUT (sidebar + content) ───────────────────────────── */
+#dashboard{display:none;min-height:100vh;}
+.layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh;}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);padding:24px 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;}
+.sb-brand{padding:0 24px 24px;border-bottom:1px solid var(--border);}
+.sb-brand-logo{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:flex;align-items:center;gap:8px;}
+.sb-brand-sub{color:var(--muted);font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-top:2px;}
+.sb-section{padding:18px 16px 6px;font-size:11px;letter-spacing:1.3px;color:var(--muted);font-weight:600;text-transform:uppercase;}
+.sb-item{display:flex;align-items:center;gap:12px;padding:11px 18px;margin:0 8px;border-radius:10px;color:var(--t2);font-size:14px;cursor:pointer;border:none;background:transparent;width:calc(100% - 16px);text-align:left;font-family:inherit;}
+.sb-item:hover{background:var(--surface2);color:var(--text);}
+.sb-item.active{background:linear-gradient(90deg,rgba(255,107,53,.18),rgba(255,107,53,.04));color:var(--accent);font-weight:600;}
+.sb-item .ico{font-size:16px;width:20px;text-align:center;}
+.sb-foot{margin-top:auto;padding:18px 24px;border-top:1px solid var(--border);}
+.sb-user{font-size:13px;color:var(--accent);font-weight:600;margin-bottom:8px;}
+.btn-logout{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px;color:var(--t2);font-size:13px;cursor:pointer;font-family:inherit;}
+.btn-logout:hover{border-color:var(--red);color:var(--red);}
+
+.content{padding:32px 40px;overflow-y:auto;}
+.page{display:none;}
+.page.active{display:block;}
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:16px;}
+.page-title{font-family:'Syne',sans-serif;font-size:30px;font-weight:700;display:flex;align-items:center;gap:10px;}
+.page-subtitle{color:var(--t2);font-size:14px;margin-top:4px;}
+
+/* ── BUTTONS ──────────────────────────────────────────────── */
+.btn{padding:10px 18px;border-radius:10px;font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text);transition:all .2s;display:inline-flex;align-items:center;gap:6px;text-decoration:none;}
+.btn:hover{background:var(--surface2);}
+.btn.primary{background:var(--accent-grad);color:#fff;border:none;font-weight:600;}
+.btn.primary:hover{opacity:.9;}
+.btn.success{border-color:var(--green);color:var(--green);}
+.btn.success:hover{background:rgba(6,214,160,.1);}
+.btn.danger{border-color:var(--red);color:var(--red);}
+.btn.danger:hover{background:rgba(239,68,68,.1);}
+.btn.ghost{background:var(--surface2);}
+.btn.sm{padding:7px 12px;font-size:12px;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+
+/* ── STATS CARDS ──────────────────────────────────────────── */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;margin-bottom:28px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;position:relative;overflow:hidden;}
+.stat-card .stat-ico{position:absolute;top:14px;right:14px;font-size:22px;opacity:.4;}
+.stat-label{color:var(--muted);font-size:11px;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px;font-weight:600;}
+.stat-value{font-family:'Syne',sans-serif;font-size:30px;font-weight:700;}
+.stat-foot{font-size:11px;color:var(--t2);margin-top:6px;}
 .stat-card.orange .stat-value{color:var(--accent);}
-.stat-card.green .stat-value{color:var(--green);}
+.stat-card.green  .stat-value{color:var(--green);}
 .stat-card.yellow .stat-value{color:var(--accent2);}
-/* CLIENT CARDS */
+.stat-card.blue   .stat-value{color:var(--blue);}
+.stat-card.red    .stat-value{color:var(--red);}
+.stat-card.purple .stat-value{color:var(--purple);}
+
+/* ── PER-CLIENT SNAPSHOT GRID (master dashboard) ──────────── */
+.snapshot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px;}
+.snap-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;cursor:pointer;transition:all .2s;}
+.snap-card:hover{border-color:var(--accent);transform:translateY(-2px);}
+.snap-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+.snap-avatar{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden;}
+.snap-avatar img{width:100%;height:100%;object-fit:cover;}
+.snap-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;}
+.snap-slug{font-size:11px;color:var(--muted);font-family:monospace;}
+.snap-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:13px;}
+.snap-mini-row{display:flex;justify-content:space-between;align-items:baseline;color:var(--t2);}
+.snap-mini-row b{color:var(--text);font-family:'Syne',sans-serif;font-weight:700;}
+
+/* ── CLIENT CARDS (All Restaurants) ───────────────────────── */
 .clients-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:20px;}
-.client-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;transition:border-color 0.2s;}
-.client-card:hover{border-color:rgba(255,107,53,0.3);}
-.client-card-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;}
-.client-avatar{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:white;flex-shrink:0;overflow:hidden;}
-.client-avatar img{width:100%;height:100%;object-fit:cover;}
-.client-status{display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;}
-.client-status.active{background:rgba(6,214,160,0.1);color:var(--green);border:1px solid rgba(6,214,160,0.2);}
-.client-status.inactive{background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.2);}
-.status-dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
-.client-name{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:4px;}
-.client-slug{font-size:12px;color:var(--muted);font-family:monospace;background:var(--surface2);padding:2px 8px;border-radius:6px;display:inline-block;}
-.client-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;}
-.meta-label{font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;}
-.meta-value{font-size:13px;}
-.client-card-footer{display:flex;gap:8px;padding-top:16px;border-top:1px solid var(--border);flex-wrap:wrap;}
-.btn-sm{padding:7px 12px;border-radius:10px;font-size:12px;font-weight:500;font-family:'DM Sans',sans-serif;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text);transition:all 0.2s;}
-.btn-sm:hover{background:var(--surface2);}
-.btn-sm.edit:hover{border-color:var(--accent2);color:var(--accent2);}
-.btn-sm.danger:hover{border-color:var(--red);color:var(--red);}
-.btn-sm.success:hover{border-color:var(--green);color:var(--green);}
-.btn-sm.info:hover{border-color:var(--blue);color:var(--blue);}
-/* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;}
-.modal-overlay.open{display:flex;}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:24px;width:100%;max-width:680px;padding:32px;position:relative;}
-.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;}
-.modal-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;}
-.modal-close{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;color:var(--muted);font-size:18px;display:flex;align-items:center;justify-content:center;}
-.form-section{margin-bottom:24px;}
-.form-section-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);font-weight:600;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.form-group{margin-bottom:14px;}
-.form-group.full{grid-column:1/-1;}
-.form-label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500;}
-.form-input,.form-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s;}
-.form-input:focus,.form-select:focus{border-color:var(--accent);}
-.form-select{appearance:none;}
-.form-hint{font-size:11px;color:var(--muted);margin-top:4px;}
-.modal-footer{display:flex;gap:12px;margin-top:28px;padding-top:24px;border-top:1px solid var(--border);}
-.btn-cancel{flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:14px;font-family:'DM Sans',sans-serif;cursor:pointer;}
-.btn-save{flex:2;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,var(--accent),#ff8c5a);color:white;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;}
-.btn-save:disabled{opacity:0.5;cursor:not-allowed;}
-/* CLIENT VIEW MODAL */
-.cv-tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--surface2);border-radius:12px;padding:4px;}
-.cv-tab{flex:1;padding:8px;border-radius:9px;font-size:13px;cursor:pointer;color:var(--muted);text-align:center;border:none;background:transparent;font-family:'DM Sans',sans-serif;}
-.cv-tab.active{background:var(--surface);color:var(--text);font-weight:500;}
-.cv-section{display:none;}
-.cv-section.active{display:block;}
+.client-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;}
+.client-card:hover{border-color:rgba(255,107,53,.4);}
+.cc-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;}
+.cc-avatar{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;}
+.cc-avatar img{width:100%;height:100%;object-fit:cover;}
+.cc-status{display:flex;align-items:center;gap:6px;font-size:11px;padding:4px 10px;border-radius:20px;font-weight:600;}
+.cc-status.active{background:rgba(6,214,160,.12);color:var(--green);border:1px solid rgba(6,214,160,.25);}
+.cc-status.inactive{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.25);}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.cc-name{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;}
+.cc-slug{font-size:11px;color:var(--muted);font-family:monospace;background:var(--surface2);padding:2px 8px;border-radius:6px;display:inline-block;margin-top:3px;}
+.cc-meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0;font-size:12px;}
+.cc-meta div{color:var(--t2);}
+.cc-meta b{color:var(--text);font-weight:600;}
+.cc-foot{display:flex;gap:6px;padding-top:14px;border-top:1px solid var(--border);flex-wrap:wrap;}
+
+/* ── TABLES ───────────────────────────────────────────────── */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
-th{padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);}
-td{padding:10px 12px;border-bottom:1px solid var(--border);}
+th{padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--muted);background:var(--surface2);font-weight:600;letter-spacing:.6px;}
+td{padding:12px 16px;border-bottom:1px solid var(--border);}
 tr:last-child td{border-bottom:none;}
-tr:hover td{background:var(--surface2);}
-.badge-g{background:rgba(6,214,160,0.1);color:var(--green);border:1px solid rgba(6,214,160,0.2);border-radius:20px;padding:2px 8px;font-size:11px;}
-.badge-o{background:rgba(255,107,53,0.1);color:var(--accent);border:1px solid rgba(255,107,53,0.2);border-radius:20px;padding:2px 8px;font-size:11px;}
-.badge-r{background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.2);border-radius:20px;padding:2px 8px;font-size:11px;}
-/* TOAST */
-.toast{position:fixed;bottom:32px;right:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;font-size:14px;z-index:9999;display:none;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,0.4);}
+tr:hover td{background:rgba(255,255,255,.02);}
+.bdg{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:600;}
+.bdg.g{background:rgba(6,214,160,.12);color:var(--green);border:1px solid rgba(6,214,160,.3);}
+.bdg.r{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.3);}
+.bdg.o{background:rgba(255,107,53,.12);color:var(--accent);border:1px solid rgba(255,107,53,.3);}
+.bdg.b{background:rgba(96,165,250,.12);color:var(--blue);border:1px solid rgba(96,165,250,.3);}
+
+/* ── FORMS ────────────────────────────────────────────────── */
+.form-section{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;margin-bottom:18px;}
+.fs-title{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;color:var(--accent);font-weight:700;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.form-row.three{grid-template-columns:1fr 1fr 1fr;}
+.fg{margin-bottom:14px;}
+.fg.full{grid-column:1/-1;}
+.fg label{display:block;font-size:12px;color:var(--t2);margin-bottom:6px;font-weight:500;}
+.ti{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;font-family:inherit;outline:none;transition:border-color .2s;}
+.ti:focus{border-color:var(--accent);}
+select.ti{appearance:none;}
+.fg .hint{font-size:11px;color:var(--muted);margin-top:4px;}
+
+/* ── MODAL (used for sub-actions) ─────────────────────────── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:1000;display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;}
+.modal-bg.open{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:20px;width:100%;max-width:600px;padding:28px;}
+.modal.lg{max-width:900px;}
+.m-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
+.m-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;}
+.m-close{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:30px;height:30px;cursor:pointer;color:var(--t2);font-size:18px;}
+.m-foot{display:flex;gap:10px;margin-top:22px;padding-top:18px;border-top:1px solid var(--border);}
+
+/* ── RESTAURANT DETAIL (full-page tabs) ───────────────────── */
+.detail-head{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.detail-head .cc-avatar{width:60px;height:60px;font-size:24px;}
+.detail-info{flex:1;min-width:200px;}
+.detail-name{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;}
+.detail-meta{font-size:12px;color:var(--t2);font-family:monospace;margin-top:4px;}
+.detail-actions{display:flex;gap:8px;flex-wrap:wrap;}
+
+.tabs-bar{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:5px;margin-bottom:20px;overflow-x:auto;}
+.tab-btn{padding:9px 14px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;color:var(--t2);background:transparent;border:none;font-family:inherit;white-space:nowrap;}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{background:var(--surface2);color:var(--accent);font-weight:600;}
+.tab-pane{display:none;}
+.tab-pane.active{display:block;}
+
+/* ── LIVE TABLE CARDS ─────────────────────────────────────── */
+.live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.live-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;}
+.live-card.pending{border-color:rgba(255,107,53,.5);background:linear-gradient(135deg,rgba(255,107,53,.06),transparent);}
+.live-tnum{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:var(--accent);}
+.live-name{font-size:14px;font-weight:600;margin-top:4px;}
+.live-meta{font-size:11px;color:var(--t2);font-family:monospace;}
+.live-status{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;margin-top:8px;}
+.live-actions{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;}
+
+/* ── QR GRID ──────────────────────────────────────────────── */
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
+.qr-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center;}
+.qr-card img{width:100%;max-width:200px;border-radius:8px;background:#fff;padding:8px;}
+.qr-tnum{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--accent);margin-top:8px;}
+.qr-secret{font-family:monospace;font-size:11px;color:var(--muted);margin-top:4px;}
+
+/* ── MISC ─────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:32px;right:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 22px;font-size:14px;z-index:9999;display:none;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.5);}
 .toast.show{display:flex;}
-.loading{text-align:center;padding:40px;color:var(--muted);}
-.spin{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;}
+.loading{text-align:center;padding:50px 20px;color:var(--muted);}
+.spin{width:30px;height:30px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;}
 @keyframes spin{to{transform:rotate(360deg);}}
-.empty-state{text-align:center;padding:80px 40px;color:var(--muted);}
-.empty-icon{font-size:48px;margin-bottom:16px;}
-.empty-title{font-family:'Syne',sans-serif;font-size:20px;color:var(--text);margin-bottom:8px;}
-.color-preview{width:24px;height:24px;border-radius:6px;border:1px solid var(--border);display:inline-block;vertical-align:middle;margin-left:8px;}
+.empty{text-align:center;padding:60px 30px;color:var(--muted);}
+.empty .ico{font-size:42px;margin-bottom:14px;}
+.empty .t{font-family:'Syne',sans-serif;font-size:18px;color:var(--text);margin-bottom:6px;}
+.color-prev{width:28px;height:28px;border-radius:8px;border:1px solid var(--border);}
+.dv{height:1px;background:var(--border);margin:14px 0;}
+.copy-btn{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--t2);font-size:11px;cursor:pointer;font-family:inherit;}
+
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr;}
+  .sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--border);}
+  .form-row,.form-row.three{grid-template-columns:1fr;}
+  .content{padding:20px;}
+}
 </style>
 </head>
 <body>
@@ -116,712 +202,1109 @@ tr:hover td{background:var(--surface2);}
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">RestroFlow</div>
-    <div class="login-sub">Super Admin Dashboard</div>
+    <div class="login-sub">Master Admin Dashboard</div>
     <input type="password" id="admin-secret" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')login()">
-    <button class="btn-primary" onclick="login()">Login →</button>
+    <button class="btn primary" style="width:100%;padding:14px" onclick="login()">Login →</button>
     <div class="error-msg" id="login-error">Wrong password. Try again.</div>
   </div>
 </div>
 
 <!-- DASHBOARD -->
 <div id="dashboard">
-  <div class="topbar">
-    <div class="topbar-logo">RestroFlow</div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div class="badge">● Live</div>
-      <button class="btn-logout" onclick="logout()">Logout</button>
-    </div>
-  </div>
+<div class="layout">
 
-  <div class="main">
-    <div class="page-header">
-      <div>
-        <div class="page-title">Restaurants</div>
-        <div class="page-subtitle">Manage all your restaurant clients</div>
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-logo">🍴 RestroFlow</div>
+      <div class="sb-brand-sub">Master Admin Panel</div>
+    </div>
+
+    <div class="sb-section">Overview</div>
+    <button class="sb-item active" data-page="dash" onclick="nav('dash')"><span class="ico">📊</span> Master Dashboard</button>
+    <button class="sb-item" data-page="restaurants" onclick="nav('restaurants')"><span class="ico">🏪</span> All Restaurants</button>
+    <button class="sb-item" data-page="orders" onclick="nav('orders')"><span class="ico">🧾</span> All Orders</button>
+    <button class="sb-item" data-page="customers" onclick="nav('customers')"><span class="ico">👥</span> All Customers</button>
+
+    <div class="sb-section">Operations</div>
+    <button class="sb-item" data-page="add" onclick="nav('add')"><span class="ico">➕</span> Add New Restaurant</button>
+
+    <div class="sb-foot">
+      <div class="sb-user">Super Admin</div>
+      <button class="btn-logout" onclick="logout()">🔒 Logout</button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="content">
+
+    <!-- ╔═════════════ MASTER DASHBOARD ═════════════╗ -->
+    <section class="page active" id="page-dash">
+      <div class="page-header">
+        <div>
+          <div class="page-title">📊 Master Dashboard</div>
+          <div class="page-subtitle">Combined overview across all your restaurants</div>
+        </div>
+        <button class="btn ghost sm" onclick="loadDashboard()">↻ Refresh</button>
       </div>
-      <button class="btn-add" onclick="openAddModal()">+ Add New Restaurant</button>
-    </div>
+      <div class="stats-row">
+        <div class="stat-card orange"><div class="stat-ico">🏪</div><div class="stat-label">Active Restaurants</div><div class="stat-value" id="ds-active">—</div><div class="stat-foot" id="ds-active-foot">of total</div></div>
+        <div class="stat-card green"><div class="stat-ico">💰</div><div class="stat-label">Today Revenue</div><div class="stat-value" id="ds-rev">—</div></div>
+        <div class="stat-card yellow"><div class="stat-ico">🧾</div><div class="stat-label">Today Orders</div><div class="stat-value" id="ds-orders">—</div></div>
+        <div class="stat-card blue"><div class="stat-ico">🪑</div><div class="stat-label">Tables Occupied</div><div class="stat-value" id="ds-tables">—</div><div class="stat-foot" id="ds-tables-foot">of total</div></div>
+        <div class="stat-card purple"><div class="stat-ico">👥</div><div class="stat-label">Customers (all)</div><div class="stat-value" id="ds-custs">—</div></div>
+        <div class="stat-card red"><div class="stat-ico">⚠️</div><div class="stat-label">Low Stock Alerts</div><div class="stat-value" id="ds-lowstock">—</div></div>
+      </div>
+      <h3 style="font-family:Syne,sans-serif;font-size:18px;margin-bottom:14px">Per-Restaurant Snapshot</h3>
+      <div id="snapshot-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
+    </section>
 
-    <div class="stats-row">
-      <div class="stat-card orange"><div class="stat-label">Total Clients</div><div class="stat-value" id="stat-total">—</div></div>
-      <div class="stat-card green"><div class="stat-label">Active</div><div class="stat-value" id="stat-active">—</div></div>
-      <div class="stat-card yellow"><div class="stat-label">Inactive</div><div class="stat-value" id="stat-inactive">—</div></div>
-    </div>
+    <!-- ╔═════════════ ALL RESTAURANTS ═════════════╗ -->
+    <section class="page" id="page-restaurants">
+      <div class="page-header">
+        <div>
+          <div class="page-title">🏪 All Restaurants</div>
+          <div class="page-subtitle">Manage clients, edit settings, full access to each one</div>
+        </div>
+        <button class="btn primary" onclick="nav('add')">+ Add New Restaurant</button>
+      </div>
+      <div id="clients-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
+    </section>
 
-    <div id="clients-container"></div>
-  </div>
+    <!-- ╔═════════════ ALL ORDERS (cross-client) ═════════════╗ -->
+    <section class="page" id="page-orders">
+      <div class="page-header">
+        <div>
+          <div class="page-title">🧾 All Orders Today</div>
+          <div class="page-subtitle">Live orders across every restaurant</div>
+        </div>
+        <button class="btn ghost sm" onclick="loadAllOrders()">↻ Refresh</button>
+      </div>
+      <div id="all-orders-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
+    </section>
+
+    <!-- ╔═════════════ ALL CUSTOMERS ═════════════╗ -->
+    <section class="page" id="page-customers">
+      <div class="page-header">
+        <div>
+          <div class="page-title">👥 All Customers</div>
+          <div class="page-subtitle">Top customers across every restaurant</div>
+        </div>
+        <button class="btn ghost sm" onclick="loadAllCustomers()">↻ Refresh</button>
+      </div>
+      <div id="all-customers-container"><div class="loading"><div class="spin"></div>Loading...</div></div>
+    </section>
+
+    <!-- ╔═════════════ ADD NEW RESTAURANT ═════════════╗ -->
+    <section class="page" id="page-add">
+      <div class="page-header">
+        <div>
+          <div class="page-title">➕ Add New Restaurant</div>
+          <div class="page-subtitle">Onboard a new client — fill in the details below</div>
+        </div>
+      </div>
+      <form id="add-form" onsubmit="submitAdd(event)">
+        <div class="form-section">
+          <div class="fs-title">🏪 Restaurant Info</div>
+          <div class="form-row">
+            <div class="fg"><label>Restaurant Name *</label><input class="ti" id="f-name" required placeholder="White Sugar Restro Cafe"></div>
+            <div class="fg"><label>Slug (unique ID) *</label><input class="ti" id="f-slug" required placeholder="whiteSugar"><div class="hint">No spaces. Used in URLs.</div></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">🎨 Branding</div>
+          <div class="form-row">
+            <div class="fg"><label>Logo URL</label><input class="ti" id="f-logo" placeholder="https://...logo.png"></div>
+            <div class="fg"><label>Primary Color</label>
+              <div style="display:flex;gap:8px;align-items:center"><input class="ti" id="f-color" value="#ff6b35" oninput="prevColor()" style="flex:1"><div class="color-prev" id="color-prev" style="background:#ff6b35"></div></div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="fg"><label>Welcome Message</label><input class="ti" id="f-welcome" placeholder="Welcome! Scan & Order"></div>
+            <div class="fg"><label>Banner Image URL</label><input class="ti" id="f-banner" placeholder="https://...banner.jpg"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">📱 Evolution API (WhatsApp)</div>
+          <div class="fg"><label>Evolution API URL *</label><input class="ti" id="f-evo-url" required placeholder="http://your-evolution:8080"></div>
+          <div class="form-row">
+            <div class="fg"><label>API Key *</label><input class="ti" id="f-evo-key" required placeholder="your-api-key"></div>
+            <div class="fg"><label>Instance Name *</label><input class="ti" id="f-evo-instance" required placeholder="Propertybaajar"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">👥 Staff Numbers (with country code, no +)</div>
+          <div class="form-row">
+            <div class="fg"><label>Owner Phone *</label><input class="ti" id="f-owner" required placeholder="917340226277"></div>
+            <div class="fg"><label>Manager Phone</label><input class="ti" id="f-manager" placeholder="917413049091"></div>
+          </div>
+          <div class="fg"><label>Kitchen Phone</label><input class="ti" id="f-kitchen" placeholder="919468810738"></div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">💳 Payment</div>
+          <div class="form-row">
+            <div class="fg"><label>Method</label><select class="ti" id="f-payment"><option value="upi">UPI</option><option value="razorpay">Razorpay</option></select></div>
+            <div class="fg"><label>UPI ID</label><input class="ti" id="f-upi" placeholder="paytm.s11ivit@pty"></div>
+          </div>
+          <div class="fg"><label>UPI Display Name</label><input class="ti" id="f-upi-name" placeholder="White Sugar Restro Cafe"></div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">🪑 Tables & Settings</div>
+          <div class="form-row">
+            <div class="fg"><label>Number of Tables</label><input class="ti" id="f-tables" type="number" value="10"></div>
+            <div class="fg"><label>GST Rate (%)</label><input class="ti" id="f-gst" type="number" value="5"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">🗄️ Database (own PostgreSQL per client)</div>
+          <div class="fg"><label>PostgreSQL URL *</label><input class="ti" id="f-db" required placeholder="postgresql://postgres:password@host:5432/dbname"></div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">🔐 Client Dashboard Access</div>
+          <div class="fg"><label>Owner Dashboard Password</label><input class="ti" id="f-dash-pass" placeholder="Set password for restaurant owner login"><div class="hint">Owner uses this at /dashboard/{slug}</div></div>
+        </div>
+        <div class="form-section">
+          <div class="fs-title">🖨️ Gotenberg (PDF Bills)</div>
+          <div class="fg"><label>Gotenberg URL</label><input class="ti" id="f-gotenberg" placeholder="http://187.77.184.114:3000"></div>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button type="button" class="btn" onclick="nav('restaurants')">Cancel</button>
+          <button type="submit" class="btn primary" id="add-btn">Save Restaurant</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ╔═════════════ RESTAURANT DETAIL (full mgmt) ═════════════╗ -->
+    <section class="page" id="page-detail">
+      <div style="margin-bottom:18px"><button class="btn ghost sm" onclick="nav('restaurants')">← Back to All Restaurants</button></div>
+      <div class="detail-head">
+        <div class="cc-avatar" id="d-avatar">?</div>
+        <div class="detail-info">
+          <div class="detail-name" id="d-name">—</div>
+          <div class="detail-meta" id="d-meta">—</div>
+        </div>
+        <div class="detail-actions">
+          <button class="btn" id="d-open-dashboard" target="_blank">Open Client Dashboard ↗</button>
+          <button class="btn" id="d-toggle">⏸ Pause</button>
+        </div>
+      </div>
+
+      <div class="tabs-bar">
+        <button class="tab-btn active" data-tab="overview"  onclick="dTab('overview')">📊 Overview</button>
+        <button class="tab-btn" data-tab="live"      onclick="dTab('live')">🟢 Live Ops</button>
+        <button class="tab-btn" data-tab="menu"      onclick="dTab('menu')">🍽️ Menu</button>
+        <button class="tab-btn" data-tab="d-orders"  onclick="dTab('d-orders')">🧾 Orders</button>
+        <button class="tab-btn" data-tab="d-custs"   onclick="dTab('d-custs')">👥 Customers</button>
+        <button class="tab-btn" data-tab="inventory" onclick="dTab('inventory')">📦 Inventory</button>
+        <button class="tab-btn" data-tab="reports"   onclick="dTab('reports')">📈 Reports</button>
+        <button class="tab-btn" data-tab="feedback"  onclick="dTab('feedback')">⭐ Feedback</button>
+        <button class="tab-btn" data-tab="staff"     onclick="dTab('staff')">👤 Staff</button>
+        <button class="tab-btn" data-tab="qr"        onclick="dTab('qr')">📱 QR Codes</button>
+        <button class="tab-btn" data-tab="settings"  onclick="dTab('settings')">⚙️ Settings</button>
+        <button class="tab-btn" data-tab="webhook"   onclick="dTab('webhook')">🔗 Webhooks</button>
+      </div>
+
+      <div class="tab-pane active" id="tab-overview">
+        <div class="stats-row">
+          <div class="stat-card orange"><div class="stat-ico">💰</div><div class="stat-label">Today Revenue</div><div class="stat-value" id="o-rev">—</div></div>
+          <div class="stat-card green"><div class="stat-ico">🧾</div><div class="stat-label">Today Orders</div><div class="stat-value" id="o-ord">—</div></div>
+          <div class="stat-card yellow"><div class="stat-ico">🪑</div><div class="stat-label">Tables Occupied</div><div class="stat-value" id="o-tab">—</div></div>
+          <div class="stat-card blue"><div class="stat-ico">👥</div><div class="stat-label">Customers</div><div class="stat-value" id="o-cust">—</div></div>
+          <div class="stat-card red"><div class="stat-ico">⚠️</div><div class="stat-label">Low Stock</div><div class="stat-value" id="o-low">—</div></div>
+        </div>
+        <h3 style="font-family:Syne;font-size:16px;margin:8px 0 12px">Live Tables</h3>
+        <div id="o-live"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-live">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-family:Syne;font-size:16px">🔔 Pending Approvals + Live Tables</div>
+          <button class="btn ghost sm" onclick="loadLive()">↻ Refresh</button>
+        </div>
+        <div id="live-pending"></div>
+        <div class="dv"></div>
+        <div id="live-tables"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-menu">
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="btn primary sm" onclick="openMenuItemModal()">+ Add Item</button>
+          <button class="btn sm" onclick="document.getElementById('csv-input').click()">📥 Import CSV</button>
+          <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="handleCSVUpload(this)">
+        </div>
+        <div id="menu-content"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-d-orders"><div id="d-orders-content"></div></div>
+      <div class="tab-pane" id="tab-d-custs"><div id="d-custs-content"></div></div>
+
+      <div class="tab-pane" id="tab-inventory">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-family:Syne;font-size:16px">📦 Inventory</div>
+          <button class="btn primary sm" onclick="openInventoryModal()">+ Add Item</button>
+        </div>
+        <div id="inv-content"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-reports"><div id="rep-content"></div></div>
+      <div class="tab-pane" id="tab-feedback"><div id="fb-content"></div></div>
+
+      <div class="tab-pane" id="tab-staff">
+        <div id="staff-list" style="margin-bottom:18px"></div>
+        <div class="form-section">
+          <div class="fs-title">+ Add Staff Member</div>
+          <div class="form-row">
+            <div class="fg"><label>Name</label><input class="ti" id="ns-name" placeholder="Staff Name"></div>
+            <div class="fg"><label>Phone</label><input class="ti" id="ns-phone" placeholder="91XXXXXXXXXX"></div>
+          </div>
+          <div class="form-row">
+            <div class="fg"><label>Role</label><select class="ti" id="ns-role"><option value="owner">Owner</option><option value="manager">Manager</option><option value="kitchen">Kitchen</option><option value="waiter">Waiter</option></select></div>
+            <div class="fg"><label>PIN (4-6 digits)</label><input class="ti" id="ns-pin" placeholder="1234" maxlength="6"></div>
+          </div>
+          <button class="btn primary" onclick="addStaff()">Add Staff Member</button>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-qr">
+        <div style="margin-bottom:14px;color:var(--t2);font-size:13px">Print these and stick on each table — guests scan to register & order.</div>
+        <div id="qr-grid"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-settings">
+        <div id="settings-form-area"></div>
+      </div>
+
+      <div class="tab-pane" id="tab-webhook">
+        <div id="webhook-content"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
 </div>
 
-<!-- ADD/EDIT CLIENT MODAL -->
-<div class="modal-overlay" id="client-modal">
+<!-- ── MENU ITEM MODAL ── -->
+<div class="modal-bg" id="menu-modal">
   <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="modal-title">Add New Restaurant</div>
-      <button class="modal-close" onclick="closeModal()">×</button>
+    <div class="m-head"><div class="m-title" id="mi-title">Add Menu Item</div><button class="m-close" onclick="closeM('menu-modal')">×</button></div>
+    <input type="hidden" id="mi-id">
+    <div class="form-row">
+      <div class="fg"><label>Name *</label><input class="ti" id="mi-name" placeholder="Paneer Tikka"></div>
+      <div class="fg"><label>Category</label><input class="ti" id="mi-cat" placeholder="Starter"></div>
     </div>
-    <input type="hidden" id="edit-slug">
-
-    <div class="form-section">
-      <div class="form-section-title">🏪 Restaurant Info</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Restaurant Name *</label><input class="form-input" id="f-name" placeholder="White Sugar Restro Cafe"></div>
-        <div class="form-group"><label class="form-label">Slug (unique ID) *</label><input class="form-input" id="f-slug" placeholder="whiteSugar"><div class="form-hint">No spaces. Used in webhook URL.</div></div>
-      </div>
+    <div class="form-row">
+      <div class="fg"><label>Price (₹) *</label><input class="ti" id="mi-price" type="number" placeholder="220"></div>
+      <div class="fg"><label>Type</label><select class="ti" id="mi-type"><option value="veg">🟢 Veg</option><option value="nonveg">🔴 Non-Veg</option></select></div>
     </div>
-
-    <div class="form-section">
-      <div class="form-section-title">🎨 Branding</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Logo URL</label><input class="form-input" id="f-logo" placeholder="https://...logo.png"></div>
-        <div class="form-group"><label class="form-label">Primary Color</label>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <input class="form-input" id="f-color" placeholder="#ff6b35" value="#ff6b35" oninput="updateColorPreview()" style="flex:1">
-            <div class="color-preview" id="color-preview" style="background:#ff6b35"></div>
-          </div>
-        </div>
-      </div>
-      <div class="form-group"><label class="form-label">Welcome Message</label><input class="form-input" id="f-welcome" placeholder="Welcome! Scan & Order"></div>
-      <div class="form-group"><label class="form-label">Banner Image URL</label><input class="form-input" id="f-banner" placeholder="https://...banner.jpg"></div>
+    <div class="form-row">
+      <div class="fg"><label>Available</label><select class="ti" id="mi-avail"><option value="Yes">✅ Yes</option><option value="No">❌ No</option></select></div>
+      <div class="fg"><label>Bestseller</label><select class="ti" id="mi-best"><option value="no">No</option><option value="yes">⭐ Yes</option></select></div>
     </div>
-
-    <div class="form-section">
-      <div class="form-section-title">📱 Evolution API (WhatsApp)</div>
-      <div class="form-group"><label class="form-label">Evolution API URL *</label><input class="form-input" id="f-evo-url" placeholder="http://your-evolution:8080"></div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">API Key *</label><input class="form-input" id="f-evo-key" placeholder="your-api-key"></div>
-        <div class="form-group"><label class="form-label">Instance Name *</label><input class="form-input" id="f-evo-instance" placeholder="Propertybaajar"></div>
-      </div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">👥 Staff Numbers</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Owner Phone *</label><input class="form-input" id="f-owner" placeholder="917340226277"><div class="form-hint">With country code, no +</div></div>
-        <div class="form-group"><label class="form-label">Manager Phone</label><input class="form-input" id="f-manager" placeholder="917413049091"></div>
-      </div>
-      <div class="form-group"><label class="form-label">Kitchen Phone</label><input class="form-input" id="f-kitchen" placeholder="919468810738"></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">💳 Payment</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Payment Method</label><select class="form-select" id="f-payment"><option value="upi">UPI</option><option value="razorpay">Razorpay</option></select></div>
-        <div class="form-group"><label class="form-label">UPI ID</label><input class="form-input" id="f-upi" placeholder="paytm.s11ivit@pty"></div>
-      </div>
-      <div class="form-group"><label class="form-label">UPI Display Name</label><input class="form-input" id="f-upi-name" placeholder="White Sugar Restro Cafe"></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">🪑 Tables & Settings</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Number of Tables</label><input class="form-input" id="f-tables" type="number" value="10"></div>
-        <div class="form-group"><label class="form-label">GST Rate (%)</label><input class="form-input" id="f-gst" type="number" value="5"></div>
-      </div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">🗄️ Database (Each client needs own PostgreSQL)</div>
-      <div class="form-group"><label class="form-label">PostgreSQL URL *</label><input class="form-input" id="f-db" placeholder="postgresql://postgres:password@host:5432/dbname"></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">🔐 Client Dashboard Access</div>
-      <div class="form-group"><label class="form-label">Owner Dashboard Password</label><input class="form-input" id="f-dash-pass" placeholder="Set password for restaurant owner login"><div class="form-hint">Owner uses this at /dashboard/{slug}</div></div>
-    </div>
-
-    <div class="form-section">
-      <div class="form-section-title">🖨️ Gotenberg (PDF Bills)</div>
-      <div class="form-group"><label class="form-label">Gotenberg URL</label><input class="form-input" id="f-gotenberg" placeholder="http://187.77.184.114:3000"></div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
-      <button class="btn-save" id="save-btn" onclick="saveClient()">Save Restaurant</button>
-    </div>
+    <div class="fg"><label>Description</label><input class="ti" id="mi-desc" placeholder="Short description"></div>
+    <div class="fg"><label>Image URL</label><input class="ti" id="mi-img" placeholder="https://..."></div>
+    <div class="m-foot"><button class="btn" onclick="closeM('menu-modal')">Cancel</button><button class="btn primary" onclick="saveMenuItem()">Save</button></div>
   </div>
 </div>
 
-<!-- CLIENT VIEW MODAL (Admin sees client dashboard) -->
-<div class="modal-overlay" id="cv-modal">
-  <div class="modal" style="max-width:900px">
-    <div class="modal-header">
-      <div class="modal-title" id="cv-title">Client Dashboard</div>
-      <button class="modal-close" onclick="document.getElementById('cv-modal').classList.remove('open')">×</button>
+<!-- ── INVENTORY MODAL ── -->
+<div class="modal-bg" id="inv-modal">
+  <div class="modal">
+    <div class="m-head"><div class="m-title" id="iv-title">Add Inventory Item</div><button class="m-close" onclick="closeM('inv-modal')">×</button></div>
+    <input type="hidden" id="iv-id">
+    <div class="form-row">
+      <div class="fg"><label>Item Name *</label><input class="ti" id="iv-name" placeholder="Paneer"></div>
+      <div class="fg"><label>Unit</label><input class="ti" id="iv-unit" placeholder="g, kg, L, pcs"></div>
     </div>
-    <div class="cv-tabs">
-      <button class="cv-tab active" onclick="cvTab('overview',this)">📊 Overview</button>
-      <button class="cv-tab" onclick="cvTab('menu',this)">🍽️ Menu</button>
-      <button class="cv-tab" onclick="cvTab('orders',this)">🧾 Orders</button>
-      <button class="cv-tab" onclick="cvTab('customers',this)">👥 Customers</button>
-      <button class="cv-tab" onclick="cvTab('inventory',this)">📦 Inventory</button>
-      <button class="cv-tab" onclick="cvTab('reports',this)">📈 Reports</button>
-      <button class="cv-tab" onclick="cvTab('staff',this)">👤 Staff</button>
+    <div class="form-row">
+      <div class="fg"><label>Current Stock *</label><input class="ti" id="iv-stock" type="number" step="any" placeholder="500"></div>
+      <div class="fg"><label>Min Threshold *</label><input class="ti" id="iv-min" type="number" step="any" placeholder="100"></div>
     </div>
-
-    <!-- OVERVIEW -->
-    <div class="cv-section active" id="cv-overview">
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px">
-        <div class="stat-card orange" style="padding:16px"><div class="stat-label">Revenue</div><div class="stat-value" style="font-size:22px" id="cv-total">—</div></div>
-        <div class="stat-card green" style="padding:16px"><div class="stat-label">Orders</div><div class="stat-value" style="font-size:22px" id="cv-orders">—</div></div>
-        <div class="stat-card yellow" style="padding:16px"><div class="stat-label">Tables Occ.</div><div class="stat-value" style="font-size:22px" id="cv-tables">—</div></div>
-        <div class="stat-card" style="padding:16px;border-color:var(--blue)"><div class="stat-label">Customers</div><div class="stat-value" style="font-size:22px;color:var(--blue)" id="cv-custs">—</div></div>
-      </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Live Tables</div>
-      <div id="cv-live-tables"></div>
-    </div>
-
-    <!-- MENU -->
-    <div class="cv-section" id="cv-menu">
-      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-        <button class="btn-add" style="padding:9px 18px;font-size:13px" onclick="openMenuItemModal()">+ Add Item</button>
-        <button class="btn-sm info" onclick="openImportModal()" style="padding:9px 14px">📥 Import CSV</button>
-        <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="handleCSVUpload(this)">
-      </div>
-      <div id="cv-menu-content"><div class="loading"><div class="spin"></div>Loading...</div></div>
-    </div>
-
-    <!-- ORDERS -->
-    <div class="cv-section" id="cv-orders-section">
-      <div id="cv-orders-content"><div class="loading"><div class="spin"></div>Loading...</div></div>
-    </div>
-
-    <!-- CUSTOMERS -->
-    <div class="cv-section" id="cv-customers">
-      <div id="cv-customers-content"><div class="loading"><div class="spin"></div>Loading...</div></div>
-    </div>
-
-    <!-- INVENTORY -->
-    <div class="cv-section" id="cv-inventory">
-      <div id="cv-inventory-content"><div class="loading"><div class="spin"></div>Loading...</div></div>
-    </div>
-
-    <!-- REPORTS -->
-    <div class="cv-section" id="cv-reports">
-      <div id="cv-reports-content"><div class="loading"><div class="spin"></div>Loading...</div></div>
-    </div>
-
-    <!-- STAFF -->
-    <div class="cv-section" id="cv-staff">
-      <div id="cv-staff-list" style="margin-bottom:20px"></div>
-      <div style="border-top:1px solid var(--border);padding-top:20px">
-        <div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:14px;text-transform:uppercase;letter-spacing:1px">+ Add Staff Member</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div><label class="form-label">Name</label><input class="form-input" id="ns-name" placeholder="Staff Name"></div>
-          <div><label class="form-label">Phone</label><input class="form-input" id="ns-phone" placeholder="91XXXXXXXXXX"></div>
-          <div><label class="form-label">Role</label>
-            <select class="form-select" id="ns-role">
-              <option value="owner">Owner</option>
-              <option value="manager">Manager</option>
-              <option value="kitchen">Kitchen</option>
-              <option value="waiter">Waiter</option>
-            </select>
-          </div>
-          <div><label class="form-label">PIN (4-6 digits)</label><input class="form-input" id="ns-pin" placeholder="1234" maxlength="6"></div>
-        </div>
-        <button class="btn-save" style="margin-top:14px;width:100%" onclick="addStaff()">Add Staff Member</button>
-      </div>
-    </div>
+    <div class="fg"><label>Cost Price (₹/unit)</label><input class="ti" id="iv-cost" type="number" step="any" placeholder="0"></div>
+    <div class="m-foot"><button class="btn" onclick="closeM('inv-modal')">Cancel</button><button class="btn primary" onclick="saveInv()">Save</button></div>
   </div>
 </div>
 
-<!-- MENU ITEM MODAL -->
-<div class="modal-overlay" id="menu-item-modal">
-  <div class="modal" style="max-width:560px">
-    <div class="modal-header">
-      <div class="modal-title" id="mi-modal-title">Add Menu Item</div>
-      <button class="modal-close" onclick="document.getElementById('menu-item-modal').classList.remove('open')">×</button>
-    </div>
-    <input type="hidden" id="mi-edit-id">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-      <div class="form-group"><label class="form-label">Item Name *</label><input class="form-input" id="mi-name" placeholder="Paneer Tikka"></div>
-      <div class="form-group"><label class="form-label">Category</label><input class="form-input" id="mi-cat" placeholder="Starter"></div>
-      <div class="form-group"><label class="form-label">Price (₹) *</label><input class="form-input" id="mi-price" type="number" placeholder="220"></div>
-      <div class="form-group"><label class="form-label">Type</label><select class="form-select" id="mi-type"><option value="veg">🟢 Veg</option><option value="nonveg">🔴 Non-Veg</option></select></div>
-      <div class="form-group"><label class="form-label">Available</label><select class="form-select" id="mi-avail"><option value="Yes">✅ Yes</option><option value="No">❌ No</option></select></div>
-      <div class="form-group"><label class="form-label">Bestseller</label><select class="form-select" id="mi-best"><option value="no">No</option><option value="yes">⭐ Yes</option></select></div>
-      <div class="form-group full"><label class="form-label">Description</label><input class="form-input" id="mi-desc" placeholder="Short description"></div>
-      <div class="form-group full"><label class="form-label">Image URL</label><input class="form-input" id="mi-img" placeholder="https://..."></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="document.getElementById('menu-item-modal').classList.remove('open')">Cancel</button>
-      <button class="btn-save" onclick="saveMenuItem()">Save Item</button>
-    </div>
-  </div>
-</div>
-
-<!-- WEBHOOK MODAL -->
-<div class="modal-overlay" id="webhook-modal">
-  <div class="modal" style="max-width:520px">
-    <div class="modal-header">
-      <div class="modal-title">🔗 Webhook URLs</div>
-      <button class="modal-close" onclick="document.getElementById('webhook-modal').classList.remove('open')">×</button>
-    </div>
-    <div id="webhook-content"></div>
-    <div class="modal-footer"><button class="btn-save" onclick="document.getElementById('webhook-modal').classList.remove('open')">Done</button></div>
-  </div>
-</div>
-
-<div class="toast" id="toast"><span id="toast-icon"></span><span id="toast-msg"></span></div>
+<div class="toast" id="toast"><span id="t-icon"></span><span id="t-msg"></span></div>
 
 <script>
+/* ═══════════════════════ STATE ═══════════════════════ */
 const BASE = window.location.origin;
 let ADMIN_SECRET = '';
-let currentSlug  = '';
+let allClients   = [];
+let curSlug      = '';
+let curClient    = null;
 
-// ── LOGIN ────────────────────────────────────────────────────────────────────
-function login() {
-  const secret = document.getElementById('admin-secret').value.trim();
+/* ═══════════════════════ UTILS ═══════════════════════ */
+const $  = id => document.getElementById(id);
+const fmt = n => '₹' + (parseFloat(n||0)).toFixed(0);
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers: { 'x-admin-secret': ADMIN_SECRET } };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(BASE + path, opts);
+  let data; try { data = await r.json(); } catch(e) { data = null; }
+  if (!r.ok) { toast(data?.detail || data?.error || 'Error', 'er'); return null; }
+  return data;
+}
+
+function toast(msg, type='ok') {
+  $('t-icon').textContent = type==='ok' ? '✅' : '❌';
+  $('t-msg').textContent = msg;
+  const t = $('toast'); t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function closeM(id) { $(id).classList.remove('open'); }
+function openM(id)  { $(id).classList.add('open');    }
+
+function avatar(c) {
+  const color = c.primary_color || '#ff6b35';
+  const inner = c.logo_url
+    ? `<img src="${c.logo_url}" onerror="this.style.display='none'">`
+    : (c.restaurant_name||'?')[0].toUpperCase();
+  return `<div class="cc-avatar" style="background:${color}22;color:${color};border:1px solid ${color}55">${inner}</div>`;
+}
+
+/* ═══════════════════════ LOGIN ═══════════════════════ */
+async function login() {
+  const secret = $('admin-secret').value.trim();
   if (!secret) return;
+  const r = await fetch(BASE + '/admin/clients', { headers: { 'x-admin-secret': secret } });
+  if (!r.ok) { $('login-error').style.display='block'; return; }
   ADMIN_SECRET = secret;
-  fetch(`${BASE}/admin/clients`, { headers: { 'x-admin-secret': secret } })
-    .then(r => {
-      if (r.ok) {
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('dashboard').style.display = 'block';
-        loadClients();
-      } else {
-        document.getElementById('login-error').style.display = 'block';
-        ADMIN_SECRET = '';
-      }
-    }).catch(() => { document.getElementById('login-error').style.display = 'block'; ADMIN_SECRET = ''; });
+  $('login-screen').style.display = 'none';
+  $('dashboard').style.display = 'block';
+  loadDashboard();
 }
 
 function logout() {
   ADMIN_SECRET = '';
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('dashboard').style.display = 'none';
-  document.getElementById('admin-secret').value = '';
-  document.getElementById('login-error').style.display = 'none';
+  $('login-screen').style.display = 'flex';
+  $('dashboard').style.display = 'none';
+  $('admin-secret').value = '';
+  $('login-error').style.display = 'none';
 }
 
-// ── LOAD CLIENTS ──────────────────────────────────────────────────────────────
-function loadClients() {
-  document.getElementById('clients-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  fetch(`${BASE}/admin/clients`, { headers: { 'x-admin-secret': ADMIN_SECRET } })
-    .then(r => r.json()).then(clients => {
-      const total = clients.length, active = clients.filter(c=>c.active).length;
-      document.getElementById('stat-total').textContent   = total;
-      document.getElementById('stat-active').textContent  = active;
-      document.getElementById('stat-inactive').textContent = total - active;
-      if (!total) {
-        document.getElementById('clients-container').innerHTML = '<div class="empty-state"><div class="empty-icon">🍽️</div><div class="empty-title">No restaurants yet</div><p>Click "Add New Restaurant" to onboard your first client</p></div>';
-        return;
-      }
-      const grid = document.createElement('div');
-      grid.className = 'clients-grid';
-      clients.forEach(c => grid.appendChild(buildCard(c)));
-      document.getElementById('clients-container').innerHTML = '';
-      document.getElementById('clients-container').appendChild(grid);
-    });
+/* ═══════════════════════ NAVIGATION ═══════════════════════ */
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
+  $('page-' + page).classList.add('active');
+  const sbItem = document.querySelector(`.sb-item[data-page="${page}"]`);
+  if (sbItem) sbItem.classList.add('active');
+  // Loaders
+  if (page === 'dash')         loadDashboard();
+  if (page === 'restaurants')  loadRestaurants();
+  if (page === 'orders')       loadAllOrders();
+  if (page === 'customers')    loadAllCustomers();
+  if (page === 'add')          resetAddForm();
 }
 
-function buildCard(c) {
-  const div = document.createElement('div');
-  div.className = 'client-card';
-  const color = c.primary_color || '#ff6b35';
-  const avatarContent = c.logo_url
-    ? `<img src="${c.logo_url}" alt="${c.restaurant_name}" onerror="this.style.display='none'">`
-    : c.restaurant_name[0];
-  div.innerHTML = `
-    <div class="client-card-header">
-      <div style="display:flex;align-items:center;gap:14px">
-        <div class="client-avatar" style="background:${color}22;color:${color};border:1px solid ${color}44">${avatarContent}</div>
-        <div>
-          <div class="client-name">${c.restaurant_name}</div>
-          <div class="client-slug">${c.slug}</div>
+/* ═══════════════════════ MASTER DASHBOARD ═══════════════════════ */
+async function loadDashboard() {
+  $('snapshot-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const d = await api('/admin/dashboard');
+  if (!d) return;
+  $('ds-active').textContent     = d.active_clients;
+  $('ds-active-foot').textContent = `of ${d.total_clients} total`;
+  $('ds-rev').textContent        = fmt(d.total_revenue);
+  $('ds-orders').textContent     = d.total_orders;
+  $('ds-tables').textContent     = d.total_occupied;
+  $('ds-tables-foot').textContent = `of ${d.total_tables} total`;
+  $('ds-custs').textContent      = d.total_customers;
+  $('ds-lowstock').textContent   = d.total_low_stock;
+
+  if (!d.per_client.length) {
+    $('snapshot-container').innerHTML = '<div class="empty"><div class="ico">🍽️</div><div class="t">No restaurants yet</div><p>Add your first restaurant from the sidebar.</p></div>';
+    return;
+  }
+  $('snapshot-container').innerHTML = '<div class="snapshot-grid">' +
+    d.per_client.map(c => {
+      const color = c.primary_color || '#ff6b35';
+      const av = c.logo_url ? `<img src="${c.logo_url}" onerror="this.style.display='none'">` : c.restaurant_name[0].toUpperCase();
+      return `<div class="snap-card" onclick="openDetail('${c.slug}')">
+        <div class="snap-head">
+          <div class="snap-avatar" style="background:${color}22;color:${color};border:1px solid ${color}55">${av}</div>
+          <div style="flex:1;min-width:0">
+            <div class="snap-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.restaurant_name}</div>
+            <div class="snap-slug">${c.slug} ${c.active ? '<span class="bdg g">Active</span>' : '<span class="bdg r">Paused</span>'}</div>
+          </div>
         </div>
-      </div>
-      <div class="client-status ${c.active?'active':'inactive'}">
-        <div class="status-dot"></div>${c.active?'Active':'Inactive'}
-      </div>
-    </div>
-    <div class="client-meta">
-      <div><div class="meta-label">Tables</div><div class="meta-value">${c.table_count}</div></div>
-      <div><div class="meta-label">Payment</div><div class="meta-value">${(c.payment_method||'upi').toUpperCase()}</div></div>
-      <div><div class="meta-label">Instance</div><div class="meta-value" style="font-size:11px">${c.evolution_instance||'—'}</div></div>
-      <div><div class="meta-label">Owner</div><div class="meta-value" style="font-size:11px">${c.staff_owner?'+'+c.staff_owner:'—'}</div></div>
-    </div>
-    <div class="client-card-footer">
-      <button class="btn-sm edit" onclick="openEditModal('${c.slug}')">✏️ Edit</button>
-      <button class="btn-sm info" onclick="openClientView('${c.slug}','${c.restaurant_name}')">👁️ View</button>
-      <button class="btn-sm info" onclick="showWebhook('${c.slug}','${c.restaurant_name}')">🔗 Webhook</button>
-      <button class="btn-sm ${c.active?'danger':'success'}" onclick="toggleClient('${c.slug}',${c.active})">
-        ${c.active?'⏸ Pause':'▶ Activate'}
-      </button>
-    </div>`;
-  return div;
+        <div class="snap-mini">
+          <div class="snap-mini-row">Revenue <b>${fmt(c.today_revenue)}</b></div>
+          <div class="snap-mini-row">Orders <b>${c.today_orders}</b></div>
+          <div class="snap-mini-row">Tables <b>${c.occupied}/${c.table_count}</b></div>
+          <div class="snap-mini-row">Customers <b>${c.customers}</b></div>
+          ${c.low_stock ? `<div class="snap-mini-row" style="grid-column:1/-1;color:var(--red)">⚠️ ${c.low_stock} low-stock items</div>` : ''}
+        </div>
+      </div>`;
+    }).join('') + '</div>';
 }
 
-// ── ADD/EDIT MODAL ─────────────────────────────────────────────────────────────
-function openAddModal() {
-  document.getElementById('modal-title').textContent = 'Add New Restaurant';
-  document.getElementById('edit-slug').value = '';
-  document.getElementById('f-slug').disabled = false;
-  clearForm(); updateColorPreview();
-  document.getElementById('client-modal').classList.add('open');
-}
-
-function openEditModal(slug) {
-  fetch(`${BASE}/admin/clients/${slug}`, { headers: { 'x-admin-secret': ADMIN_SECRET } })
-    .then(r => r.json()).then(c => {
-      document.getElementById('modal-title').textContent = 'Edit Restaurant';
-      document.getElementById('edit-slug').value = slug;
-      document.getElementById('f-slug').value = slug;
-      document.getElementById('f-slug').disabled = true;
-      document.getElementById('f-name').value    = c.restaurant_name || '';
-      document.getElementById('f-logo').value    = c.logo_url || '';
-      document.getElementById('f-color').value   = c.primary_color || '#ff6b35';
-      document.getElementById('f-welcome').value = c.welcome_message || '';
-      document.getElementById('f-banner').value  = c.banner_image || '';
-      document.getElementById('f-owner').value   = c.staff_owner || '';
-      document.getElementById('f-manager').value = c.staff_manager || '';
-      document.getElementById('f-kitchen').value = c.staff_kitchen || '';
-      document.getElementById('f-payment').value = c.payment_method || 'upi';
-      document.getElementById('f-upi').value     = c.upi_id || '';
-      document.getElementById('f-upi-name').value = c.upi_name || '';
-      document.getElementById('f-tables').value  = c.table_count || 10;
-      document.getElementById('f-gst').value     = Math.round((c.gst_rate||0.05)*100);
-      document.getElementById('f-dash-pass').value = c.dashboard_password || '';
-      updateColorPreview();
-      document.getElementById('client-modal').classList.add('open');
-    });
-}
-
-function closeModal() { document.getElementById('client-modal').classList.remove('open'); }
-
-function clearForm() {
-  ['f-name','f-slug','f-logo','f-welcome','f-banner','f-evo-url','f-evo-key',
-   'f-evo-instance','f-owner','f-manager','f-kitchen','f-upi','f-upi-name','f-db',
-   'f-gotenberg','f-dash-pass'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  document.getElementById('f-tables').value = '10';
-  document.getElementById('f-gst').value = '5';
-  document.getElementById('f-color').value = '#ff6b35';
-}
-
-function updateColorPreview() {
-  const color = document.getElementById('f-color').value;
-  document.getElementById('color-preview').style.background = color;
-}
-
-async function saveClient() {
-  const editSlug = document.getElementById('edit-slug').value;
-  const isEdit   = !!editSlug;
-  const btn      = document.getElementById('save-btn');
-  const name     = document.getElementById('f-name').value.trim();
-  const slug     = isEdit ? editSlug : document.getElementById('f-slug').value.trim();
-  const owner    = document.getElementById('f-owner').value.trim();
-  if (!name || !slug || !owner) { showToast('Name, Slug and Owner Phone required','error'); return; }
-  if (!isEdit && !document.getElementById('f-db').value.trim()) { showToast('Database URL required','error'); return; }
-  if (!isEdit && !document.getElementById('f-evo-url').value.trim()) { showToast('Evolution API URL required','error'); return; }
-
-  btn.disabled = true; btn.textContent = 'Saving...';
-  const gst = parseFloat(document.getElementById('f-gst').value||'5') / 100;
-  const tableCount = parseInt(document.getElementById('f-tables').value||'10');
-  const tableSecrets = {};
-  for(let i=1;i<=tableCount;i++) tableSecrets[`T${i}`] = `${slug.toUpperCase().slice(0,3)}${2025+i}${String.fromCharCode(64+i)}`;
-
-  const body = isEdit ? {
-    restaurant_name: name,
-    logo_url: document.getElementById('f-logo').value.trim(),
-    primary_color: document.getElementById('f-color').value.trim(),
-    welcome_message: document.getElementById('f-welcome').value.trim(),
-    banner_image: document.getElementById('f-banner').value.trim(),
-    staff_owner: owner,
-    staff_manager: document.getElementById('f-manager').value.trim(),
-    staff_kitchen: document.getElementById('f-kitchen').value.trim(),
-    payment_method: document.getElementById('f-payment').value,
-    upi_id: document.getElementById('f-upi').value.trim(),
-    upi_name: document.getElementById('f-upi-name').value.trim(),
-    table_count: tableCount, gst_rate: gst,
-    dashboard_password: document.getElementById('f-dash-pass').value.trim(),
-  } : {
-    slug, restaurant_name: name,
-    logo_url: document.getElementById('f-logo').value.trim(),
-    primary_color: document.getElementById('f-color').value.trim() || '#ff6b35',
-    welcome_message: document.getElementById('f-welcome').value.trim(),
-    banner_image: document.getElementById('f-banner').value.trim(),
-    evolution_url: document.getElementById('f-evo-url').value.trim(),
-    evolution_key: document.getElementById('f-evo-key').value.trim(),
-    evolution_instance: document.getElementById('f-evo-instance').value.trim(),
-    staff_owner: owner,
-    staff_manager: document.getElementById('f-manager').value.trim(),
-    staff_kitchen: document.getElementById('f-kitchen').value.trim(),
-    payment_method: document.getElementById('f-payment').value,
-    upi_id: document.getElementById('f-upi').value.trim(),
-    upi_name: document.getElementById('f-upi-name').value.trim(),
-    table_count: tableCount, table_secrets: tableSecrets, gst_rate: gst,
-    gotenberg_url: document.getElementById('f-gotenberg').value.trim() || 'http://localhost:3000',
-    tenant_db_url: document.getElementById('f-db').value.trim(),
-    dashboard_password: document.getElementById('f-dash-pass').value.trim(),
-  };
-
-  const url = isEdit ? `${BASE}/admin/clients/${editSlug}` : `${BASE}/admin/clients`;
-  const method = isEdit ? 'PATCH' : 'POST';
-  try {
-    const r = await fetch(url, { method, headers: {'Content-Type':'application/json','x-admin-secret':ADMIN_SECRET}, body:JSON.stringify(body) });
-    const d = await r.json();
-    if (r.ok) { showToast(d.message||'Saved!','success'); closeModal(); loadClients(); }
-    else showToast(d.detail||'Error saving','error');
-  } catch(e) { showToast('Network error','error'); }
-  finally { btn.disabled=false; btn.textContent='Save Restaurant'; }
+/* ═══════════════════════ ALL RESTAURANTS ═══════════════════════ */
+async function loadRestaurants() {
+  $('clients-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const list = await api('/admin/clients');
+  if (!list) return;
+  allClients = list;
+  if (!list.length) {
+    $('clients-container').innerHTML = '<div class="empty"><div class="ico">🍽️</div><div class="t">No restaurants yet</div><p>Click "+ Add New Restaurant" to onboard your first client</p></div>';
+    return;
+  }
+  $('clients-container').innerHTML = '<div class="clients-grid">' +
+    list.map(c => {
+      const color = c.primary_color || '#ff6b35';
+      const av = c.logo_url ? `<img src="${c.logo_url}" onerror="this.style.display='none'">` : (c.restaurant_name||'?')[0].toUpperCase();
+      return `<div class="client-card">
+        <div class="cc-head">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div class="cc-avatar" style="background:${color}22;color:${color};border:1px solid ${color}55">${av}</div>
+            <div><div class="cc-name">${c.restaurant_name}</div><div class="cc-slug">${c.slug}</div></div>
+          </div>
+          <div class="cc-status ${c.active?'active':'inactive'}"><div class="dot"></div>${c.active?'Active':'Paused'}</div>
+        </div>
+        <div class="cc-meta">
+          <div>Tables<br><b>${c.table_count}</b></div>
+          <div>Payment<br><b>${(c.payment_method||'upi').toUpperCase()}</b></div>
+          <div>Instance<br><b style="font-size:11px">${c.evolution_instance||'—'}</b></div>
+          <div>Owner<br><b style="font-size:11px">${c.staff_owner ? '+'+c.staff_owner : '—'}</b></div>
+        </div>
+        <div class="cc-foot">
+          <button class="btn primary sm" onclick="openDetail('${c.slug}')">⚙ Manage</button>
+          <button class="btn sm" onclick="window.open('/dashboard/${c.slug}','_blank')">↗ Open</button>
+          <button class="btn sm ${c.active?'danger':'success'}" onclick="toggleClient('${c.slug}',${c.active})">${c.active?'⏸ Pause':'▶ Activate'}</button>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
 }
 
 async function toggleClient(slug, active) {
-  const action = active ? 'deactivate' : 'activate';
   if (!confirm(`${active?'Pause':'Activate'} ${slug}?`)) return;
-  const r = await fetch(`${BASE}/admin/clients/${slug}/${action}`, { method:'POST', headers:{'x-admin-secret':ADMIN_SECRET} });
-  const d = await r.json();
-  showToast(d.message, r.ok?'success':'error');
-  if (r.ok) loadClients();
+  const r = await api(`/admin/clients/${slug}/${active?'deactivate':'activate'}`, 'POST');
+  if (r) { toast(r.message); loadRestaurants(); loadDashboard(); }
 }
 
-// ── WEBHOOK ────────────────────────────────────────────────────────────────────
-function showWebhook(slug, name) {
-  const wa  = `${BASE}/webhook/${slug}/whatsapp`;
-  const rzp = `${BASE}/webhook/${slug}/razorpay-webhook`;
-  document.getElementById('webhook-content').innerHTML = `
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">🟢 WhatsApp Webhook</div>
-      <div style="font-family:monospace;font-size:13px;color:var(--accent2);word-break:break-all">${wa}</div>
-      <button onclick="copyText('${wa}',this)" style="margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 12px;color:var(--text);font-size:12px;cursor:pointer">Copy</button>
-    </div>
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">💳 Razorpay Webhook</div>
-      <div style="font-family:monospace;font-size:13px;color:var(--accent2);word-break:break-all">${rzp}</div>
-      <button onclick="copyText('${rzp}',this)" style="margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 12px;color:var(--text);font-size:12px;cursor:pointer">Copy</button>
-    </div>`;
-  document.getElementById('webhook-modal').classList.add('open');
+/* ═══════════════════════ ALL ORDERS / CUSTOMERS ═══════════════════════ */
+async function loadAllOrders() {
+  $('all-orders-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const orders = await api('/admin/all-orders');
+  if (!orders) return;
+  if (!orders.length) {
+    $('all-orders-container').innerHTML = '<div class="empty"><div class="ico">🧾</div><div class="t">No orders today</div></div>'; return;
+  }
+  $('all-orders-container').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Time</th><th>Restaurant</th><th>Table</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>' +
+    orders.map(o => `<tr>
+      <td style="font-size:11px;color:var(--muted)">${(o.date||'').split(',')[1]||o.date||''}</td>
+      <td><b>${o.restaurant_name}</b><br><span style="font-size:10px;color:var(--muted);font-family:monospace">${o.slug}</span></td>
+      <td>${o.table_name||'—'}</td>
+      <td>${o.customer_name||'—'}</td>
+      <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(o.items||'').replace(/"/g,'&quot;')}">${o.items||''}</td>
+      <td><b>${fmt(o.total)}</b></td>
+      <td>${o.payment_method||'—'}</td>
+      <td><span class="bdg ${o.status==='Paid'?'g':'o'}">${o.status||'—'}</span></td>
+    </tr>`).join('') + '</table></div>';
+}
+
+async function loadAllCustomers() {
+  $('all-customers-container').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const custs = await api('/admin/all-customers');
+  if (!custs) return;
+  if (!custs.length) {
+    $('all-customers-container').innerHTML = '<div class="empty"><div class="ico">👥</div><div class="t">No customers yet</div></div>'; return;
+  }
+  $('all-customers-container').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Name</th><th>Phone</th><th>Restaurant</th><th>Visits</th><th>Spent</th><th>Last Visit</th><th>Type</th></tr>' +
+    custs.map(c => `<tr>
+      <td><b>${c.name}</b></td>
+      <td style="font-family:monospace;font-size:12px">${c.phone}</td>
+      <td>${c.restaurant_name}</td>
+      <td>${c.total_visits}</td>
+      <td>${fmt(c.total_spent)}</td>
+      <td>${c.last_visit||'—'}</td>
+      <td>${parseInt(c.total_visits||0)>=2?'<span class="bdg o">⭐ Premium</span>':'<span class="bdg g">Regular</span>'}</td>
+    </tr>`).join('') + '</table></div>';
+}
+
+/* ═══════════════════════ ADD RESTAURANT ═══════════════════════ */
+function resetAddForm() {
+  ['f-name','f-slug','f-logo','f-welcome','f-banner','f-evo-url','f-evo-key','f-evo-instance',
+   'f-owner','f-manager','f-kitchen','f-upi','f-upi-name','f-db','f-gotenberg','f-dash-pass']
+    .forEach(id => $(id) && ($(id).value = ''));
+  $('f-tables').value = '10'; $('f-gst').value = '5';
+  $('f-color').value = '#ff6b35'; prevColor();
+}
+function prevColor() { $('color-prev').style.background = $('f-color').value; }
+
+async function submitAdd(e) {
+  e.preventDefault();
+  const slug = $('f-slug').value.trim();
+  const tableCount = parseInt($('f-tables').value || '10');
+  const tableSecrets = {};
+  for (let i = 1; i <= tableCount; i++) {
+    tableSecrets[`T${i}`] = `${slug.toUpperCase().slice(0,3)}${2025+i}${String.fromCharCode(64+i)}`;
+  }
+  const body = {
+    slug, restaurant_name: $('f-name').value.trim(),
+    logo_url: $('f-logo').value.trim(),
+    primary_color: $('f-color').value.trim() || '#ff6b35',
+    welcome_message: $('f-welcome').value.trim(),
+    banner_image: $('f-banner').value.trim(),
+    evolution_url: $('f-evo-url').value.trim(),
+    evolution_key: $('f-evo-key').value.trim(),
+    evolution_instance: $('f-evo-instance').value.trim(),
+    staff_owner: $('f-owner').value.trim(),
+    staff_manager: $('f-manager').value.trim(),
+    staff_kitchen: $('f-kitchen').value.trim(),
+    payment_method: $('f-payment').value,
+    upi_id: $('f-upi').value.trim(), upi_name: $('f-upi-name').value.trim(),
+    table_count: tableCount, table_secrets: tableSecrets,
+    gst_rate: parseFloat($('f-gst').value || '5') / 100,
+    gotenberg_url: $('f-gotenberg').value.trim() || 'http://localhost:3000',
+    tenant_db_url: $('f-db').value.trim(),
+    dashboard_password: $('f-dash-pass').value.trim(),
+  };
+  $('add-btn').disabled = true; $('add-btn').textContent = 'Saving...';
+  const r = await api('/admin/clients', 'POST', body);
+  $('add-btn').disabled = false; $('add-btn').textContent = 'Save Restaurant';
+  if (r && r.success) {
+    toast('✅ Restaurant created!');
+    resetAddForm(); nav('restaurants');
+  }
+}
+
+/* ═══════════════════════ DETAIL — ENTRY ═══════════════════════ */
+async function openDetail(slug) {
+  curSlug = slug;
+  if (!allClients.length) {
+    const r = await api('/admin/clients'); if (r) allClients = r;
+  }
+  curClient = allClients.find(c => c.slug === slug) || { slug, restaurant_name: slug, active: true };
+
+  // Header
+  $('d-name').textContent = curClient.restaurant_name;
+  $('d-meta').textContent = `${slug} · ${curClient.evolution_instance || '—'} · ${(curClient.payment_method||'upi').toUpperCase()}`;
+  const color = curClient.primary_color || '#ff6b35';
+  $('d-avatar').style.background = color + '22';
+  $('d-avatar').style.color      = color;
+  $('d-avatar').style.border     = `1px solid ${color}55`;
+  $('d-avatar').innerHTML = curClient.logo_url
+    ? `<img src="${curClient.logo_url}" onerror="this.style.display='none'">`
+    : (curClient.restaurant_name||'?')[0].toUpperCase();
+  $('d-open-dashboard').onclick = () => window.open('/dashboard/' + slug, '_blank');
+  $('d-toggle').textContent = curClient.active ? '⏸ Pause' : '▶ Activate';
+  $('d-toggle').className = 'btn ' + (curClient.active ? 'danger' : 'success');
+  $('d-toggle').onclick = () => toggleClient(slug, curClient.active).then(() => openDetail(slug));
+
+  // Reset to overview tab
+  document.querySelectorAll('#page-detail .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#page-detail .tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelector('#page-detail .tab-btn[data-tab="overview"]').classList.add('active');
+  $('tab-overview').classList.add('active');
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sb-item').forEach(b => b.classList.remove('active'));
+  $('page-detail').classList.add('active');
+  loadOverview();
+}
+
+function dTab(name) {
+  document.querySelectorAll('#page-detail .tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#page-detail .tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelector(`#page-detail .tab-btn[data-tab="${name}"]`).classList.add('active');
+  $('tab-' + name).classList.add('active');
+  if (name === 'overview')   loadOverview();
+  if (name === 'live')       loadLive();
+  if (name === 'menu')       loadMenu();
+  if (name === 'd-orders')   loadDOrders();
+  if (name === 'd-custs')    loadDCusts();
+  if (name === 'inventory')  loadInventory();
+  if (name === 'reports')    loadReports();
+  if (name === 'feedback')   loadFeedback();
+  if (name === 'staff')      loadStaff();
+  if (name === 'qr')         loadQR();
+  if (name === 'settings')   loadSettings();
+  if (name === 'webhook')    showWebhook();
+}
+
+/* ═══════════════════════ OVERVIEW TAB ═══════════════════════ */
+async function loadOverview() {
+  const d = await api(`/admin/clients/${curSlug}/overview`);
+  if (!d) return;
+  $('o-rev').textContent  = fmt(d.today.total);
+  $('o-ord').textContent  = d.today.orders;
+  $('o-tab').textContent  = `${d.occupied_count}/${d.total_tables}`;
+  $('o-cust').textContent = d.customer_count;
+  $('o-low').textContent  = d.low_stock_count;
+  if (!d.live_tables.length) {
+    $('o-live').innerHTML = '<div class="empty"><div class="ico">🪑</div><div class="t">No tables occupied</div></div>';
+    return;
+  }
+  $('o-live').innerHTML = '<div class="live-grid">' + d.live_tables.map(t =>
+    `<div class="live-card">
+      <div class="live-tnum">${t.table}</div>
+      <div class="live-name">${t.name}</div>
+      <div class="live-meta">${t.status}</div>
+      <div style="margin-top:10px;font-size:13px"><b style="color:var(--accent)">${fmt(t.total)}</b></div>
+    </div>`).join('') + '</div>';
+}
+
+/* ═══════════════════════ LIVE OPS TAB ═══════════════════════ */
+async function loadLive() {
+  $('live-pending').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  $('live-tables').innerHTML = '';
+  const [pendingArr, liveData] = await Promise.all([
+    api(`/admin/clients/${curSlug}/pending`),
+    api(`/admin/clients/${curSlug}/live`),
+  ]);
+  // Pending
+  if (!pendingArr || !pendingArr.length) {
+    $('live-pending').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">✅ No pending approvals</div>';
+  } else {
+    $('live-pending').innerHTML = '<div style="font-family:Syne;font-size:14px;margin-bottom:10px;color:var(--accent)">🔔 Pending Customer Approvals</div>' +
+      '<div class="live-grid">' + pendingArr.map(p =>
+        `<div class="live-card pending">
+          <div class="live-tnum">${p.table}</div>
+          <div class="live-name">${p.name}</div>
+          <div class="live-meta">+${p.phone}</div>
+          <div class="live-actions">
+            <button class="btn success sm" onclick="adminApprove('${p.phone}')">✓ Approve</button>
+            <button class="btn danger sm" onclick="adminReject('${p.phone}')">✗ Reject</button>
+          </div>
+        </div>`).join('') + '</div>';
+  }
+  // Live tables
+  if (!liveData || !liveData.live_tables.length) {
+    $('live-tables').innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No occupied tables</div>';
+    return;
+  }
+  $('live-tables').innerHTML = '<div style="font-family:Syne;font-size:14px;margin-bottom:10px;color:var(--green)">🟢 Active Tables</div>' +
+    '<div class="live-grid">' + liveData.live_tables.map(t => {
+      const orders = (t.orders || []).map(o => `${o.quantity}× ${o.name}`).join(', ');
+      return `<div class="live-card">
+        <div class="live-tnum">${t.table}</div>
+        <div class="live-name">${t.name}</div>
+        <div class="live-meta">+${t.phone}</div>
+        <span class="live-status bdg ${t.status==='ORDERING'?'g':t.status==='WAITING_PAYMENT'?'o':'b'}">${t.status}</span>
+        ${orders ? `<div style="font-size:11px;color:var(--t2);margin-top:8px">${orders}</div>` : ''}
+        ${t.total ? `<div style="margin-top:8px;color:var(--accent);font-weight:600">${fmt(t.total)}</div>` : ''}
+        <div class="live-actions">
+          ${t.status==='WAITING_PAYMENT' ? `<button class="btn success sm" onclick="adminCash('${t.phone}')">💵 Confirm Cash</button>` : ''}
+          <button class="btn sm" onclick="adminKitchenDone('${t.table}')">🍽️ Kitchen Done</button>
+          <button class="btn danger sm" onclick="adminFreeTable('${t.table}')">🗑 Free</button>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
+}
+
+async function adminApprove(phone) {
+  const r = await api(`/admin/clients/${curSlug}/approve`, 'POST', { cust_phone: phone });
+  if (r && r.success) { toast(r.message || 'Approved'); loadLive(); }
+}
+async function adminReject(phone) {
+  if (!confirm('Reject this customer?')) return;
+  const r = await api(`/admin/clients/${curSlug}/reject`, 'POST', { cust_phone: phone });
+  if (r && r.success) { toast('Rejected'); loadLive(); }
+}
+async function adminCash(phone) {
+  if (!confirm('Confirm cash payment for this customer?')) return;
+  const r = await api(`/admin/clients/${curSlug}/cash-confirm`, 'POST', { cust_phone: phone });
+  if (r && r.success) { toast(`Cash confirmed: ${fmt(r.total)}`); loadLive(); loadOverview(); }
+}
+async function adminKitchenDone(table) {
+  const r = await api(`/admin/clients/${curSlug}/kitchen-done`, 'POST', { table });
+  if (r && r.success) { toast(`Marked ${table} food ready`); loadLive(); }
+}
+async function adminFreeTable(table) {
+  if (!confirm(`Free table ${table} (clears the customer)?`)) return;
+  const r = await api(`/admin/clients/${curSlug}/free-table`, 'POST', { table });
+  if (r && r.success) { toast(r.message || 'Table freed'); loadLive(); loadOverview(); }
+}
+
+/* ═══════════════════════ MENU TAB ═══════════════════════ */
+async function loadMenu() {
+  $('menu-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const items = await api(`/admin/clients/${curSlug}/menu`);
+  if (!items) return;
+  if (!items.length) {
+    $('menu-content').innerHTML = '<div class="empty"><div class="ico">🍽️</div><div class="t">No menu items</div><p>Click "+ Add Item" or import a CSV.</p></div>';
+    return;
+  }
+  $('menu-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Name</th><th>Category</th><th>Price</th><th>Type</th><th>Available</th><th>Actions</th></tr>' +
+    items.map(i => `<tr>
+      <td><b>${i.name}</b>${i.bestseller==='yes'?' ⭐':''}</td>
+      <td>${i.category}</td>
+      <td>${fmt(i.price)}</td>
+      <td>${i.type==='veg'?'🟢 Veg':'🔴 Non-Veg'}</td>
+      <td>${i.available==='Yes'?'<span class="bdg g">Yes</span>':'<span class="bdg r">No</span>'}</td>
+      <td><button class="btn sm" onclick='editMenuItem(${JSON.stringify(i)})'>Edit</button> <button class="btn danger sm" onclick="delMenuItem(${i.id})">Delete</button></td>
+    </tr>`).join('') + '</table></div>';
+}
+
+function openMenuItemModal() {
+  $('mi-title').textContent = 'Add Menu Item';
+  $('mi-id').value = '';
+  ['mi-name','mi-cat','mi-price','mi-desc','mi-img'].forEach(k => $(k).value = '');
+  $('mi-type').value = 'veg'; $('mi-avail').value = 'Yes'; $('mi-best').value = 'no';
+  openM('menu-modal');
+}
+function editMenuItem(i) {
+  $('mi-title').textContent = 'Edit Menu Item';
+  $('mi-id').value = i.id; $('mi-name').value = i.name; $('mi-cat').value = i.category;
+  $('mi-price').value = i.price; $('mi-type').value = i.type; $('mi-avail').value = i.available;
+  $('mi-best').value = i.bestseller || 'no'; $('mi-desc').value = i.description || ''; $('mi-img').value = i.image || '';
+  openM('menu-modal');
+}
+async function saveMenuItem() {
+  const id = $('mi-id').value;
+  const body = { name:$('mi-name').value.trim(), category:$('mi-cat').value.trim()||'Main Course',
+    price:parseFloat($('mi-price').value), type:$('mi-type').value, available:$('mi-avail').value,
+    bestseller:$('mi-best').value, description:$('mi-desc').value.trim(), image:$('mi-img').value.trim() };
+  if (!body.name || !body.price) { toast('Name & price required','er'); return; }
+  const url = id ? `/admin/clients/${curSlug}/menu/${id}` : `/admin/clients/${curSlug}/menu`;
+  const r = await api(url, id ? 'PATCH' : 'POST', body);
+  if (r) { toast('Saved'); closeM('menu-modal'); loadMenu(); }
+}
+async function delMenuItem(id) {
+  if (!confirm('Delete this menu item?')) return;
+  const r = await api(`/admin/clients/${curSlug}/menu/${id}`, 'DELETE');
+  if (r) { toast('Deleted'); loadMenu(); }
+}
+async function handleCSVUpload(input) {
+  const file = input.files[0]; if (!file) return;
+  const text = await file.text();
+  const r = await fetch(BASE + `/admin/clients/${curSlug}/import-menu`, {
+    method:'POST', headers:{'x-admin-secret':ADMIN_SECRET,'Content-Type':'text/plain'}, body:text
+  });
+  const d = await r.json().catch(()=>null);
+  toast(d?.success ? `✅ ${d.message}` : '❌ Import failed', d?.success ? 'ok':'er');
+  if (d?.success) loadMenu();
+  input.value = '';
+}
+
+/* ═══════════════════════ ORDERS / CUSTOMERS / REPORTS / FEEDBACK ═══════════════════════ */
+async function loadDOrders() {
+  $('d-orders-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const orders = await api(`/admin/clients/${curSlug}/orders`);
+  if (!orders) return;
+  if (!orders.length) { $('d-orders-content').innerHTML = '<div class="empty"><div class="ico">🧾</div><div class="t">No orders today</div></div>'; return; }
+  $('d-orders-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Time</th><th>Order ID</th><th>Table</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>' +
+    orders.map(o => `<tr>
+      <td style="font-size:11px;color:var(--muted)">${(o.date||'').split(',')[1]||o.date||''}</td>
+      <td style="font-family:monospace;font-size:11px">${o.order_id||'—'}</td>
+      <td>${o.table_name||'—'}</td>
+      <td>${o.customer_name||'—'}</td>
+      <td style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(o.items||'').replace(/"/g,'&quot;')}">${o.items||''}</td>
+      <td><b>${fmt(o.total)}</b></td>
+      <td>${o.payment_method||'—'}</td>
+      <td><span class="bdg ${o.status==='Paid'?'g':'o'}">${o.status||'—'}</span></td>
+    </tr>`).join('') + '</table></div>';
+}
+
+async function loadDCusts() {
+  $('d-custs-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const list = await api(`/admin/clients/${curSlug}/customers`);
+  if (!list) return;
+  if (!list.length) { $('d-custs-content').innerHTML = '<div class="empty"><div class="ico">👥</div><div class="t">No customers yet</div></div>'; return; }
+  $('d-custs-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Name</th><th>Phone</th><th>Visits</th><th>Spent</th><th>Last Visit</th><th>Type</th></tr>' +
+    list.map(c => `<tr>
+      <td><b>${c.name}</b></td>
+      <td style="font-family:monospace;font-size:12px">${c.phone}</td>
+      <td>${c.total_visits}</td>
+      <td>${fmt(c.total_spent)}</td>
+      <td>${c.last_visit||'—'}</td>
+      <td>${parseInt(c.total_visits||0)>=2?'<span class="bdg o">⭐ Premium</span>':'<span class="bdg g">Regular</span>'}</td>
+    </tr>`).join('') + '</table></div>';
+}
+
+async function loadReports() {
+  $('rep-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const rows = await api(`/admin/clients/${curSlug}/reports`);
+  if (!rows) return;
+  if (!rows.length) { $('rep-content').innerHTML = '<div class="empty"><div class="ico">📈</div><div class="t">No report data yet</div></div>'; return; }
+  $('rep-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Date</th><th>Orders</th><th>Cash</th><th>Online</th><th>Total</th></tr>' +
+    rows.map(r => `<tr>
+      <td>${r.date}</td><td>${r.total_orders}</td>
+      <td>${fmt(r.cash_amount)}</td><td>${fmt(r.online_amount)}</td>
+      <td><b>${fmt(r.total_amount)}</b></td>
+    </tr>`).join('') + '</table></div>';
+}
+
+async function loadFeedback() {
+  $('fb-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const rows = await api(`/admin/clients/${curSlug}/feedback`);
+  if (!rows) return;
+  if (!rows.length) { $('fb-content').innerHTML = '<div class="empty"><div class="ico">⭐</div><div class="t">No feedback yet</div></div>'; return; }
+  $('fb-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Date</th><th>Customer</th><th>Phone</th><th>Table</th><th>Rating</th><th>Feedback</th><th>Bill</th></tr>' +
+    rows.map(f => {
+      const stars = '⭐'.repeat(parseInt(f.rating||0));
+      return `<tr>
+        <td style="font-size:11px;color:var(--muted)">${(f.date||'').toString().slice(0,16).replace('T',' ')}</td>
+        <td><b>${f.customer_name||'—'}</b></td>
+        <td style="font-family:monospace;font-size:11px">${f.phone||'—'}</td>
+        <td>${f.table_name||'—'}</td>
+        <td>${stars} <span style="color:var(--muted);font-size:11px">(${f.rating||0}/5)</span></td>
+        <td style="max-width:300px">${f.feedback_text||'—'}</td>
+        <td>${fmt(f.session_total)}</td>
+      </tr>`;
+    }).join('') + '</table></div>';
+}
+
+/* ═══════════════════════ INVENTORY TAB ═══════════════════════ */
+async function loadInventory() {
+  $('inv-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const items = await api(`/admin/clients/${curSlug}/inventory`);
+  if (!items) return;
+  if (!items.length) { $('inv-content').innerHTML = '<div class="empty"><div class="ico">📦</div><div class="t">No inventory items</div><p>Click "+ Add Item" to add stock.</p></div>'; return; }
+  $('inv-content').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Item</th><th>Unit</th><th>Stock</th><th>Min</th><th>Cost</th><th>Status</th><th>Actions</th></tr>' +
+    items.map(i => {
+      const low = parseFloat(i.current_stock) <= parseFloat(i.min_threshold);
+      return `<tr>
+        <td><b>${i.item_name}</b></td>
+        <td>${i.unit||'—'}</td>
+        <td>${i.current_stock}</td>
+        <td>${i.min_threshold}</td>
+        <td>${fmt(i.cost_price)}</td>
+        <td>${low?'<span class="bdg r">⚠️ Low</span>':'<span class="bdg g">OK</span>'}</td>
+        <td><button class="btn sm" onclick='editInv(${JSON.stringify(i)})'>Edit</button> <button class="btn danger sm" onclick="delInv(${i.id})">Delete</button></td>
+      </tr>`;
+    }).join('') + '</table></div>';
+}
+function openInventoryModal() {
+  $('iv-title').textContent = 'Add Inventory Item';
+  $('iv-id').value = '';
+  ['iv-name','iv-stock','iv-min','iv-cost'].forEach(k => $(k).value = '');
+  $('iv-unit').value = 'g';
+  openM('inv-modal');
+}
+function editInv(i) {
+  $('iv-title').textContent = 'Edit Inventory Item';
+  $('iv-id').value = i.id; $('iv-name').value = i.item_name; $('iv-unit').value = i.unit || 'g';
+  $('iv-stock').value = i.current_stock; $('iv-min').value = i.min_threshold; $('iv-cost').value = i.cost_price || 0;
+  openM('inv-modal');
+}
+async function saveInv() {
+  const id = $('iv-id').value;
+  const body = { item_name:$('iv-name').value.trim(), unit:$('iv-unit').value.trim()||'g',
+    current_stock:parseFloat($('iv-stock').value)||0, min_threshold:parseFloat($('iv-min').value)||0,
+    cost_price:parseFloat($('iv-cost').value)||0 };
+  if (!body.item_name) { toast('Item name required','er'); return; }
+  const url = id ? `/admin/clients/${curSlug}/inventory/${id}` : `/admin/clients/${curSlug}/inventory`;
+  const r = await api(url, id ? 'PATCH' : 'POST', body);
+  if (r) { toast('Saved'); closeM('inv-modal'); loadInventory(); }
+}
+async function delInv(id) {
+  if (!confirm('Delete this item?')) return;
+  const r = await api(`/admin/clients/${curSlug}/inventory/${id}`, 'DELETE');
+  if (r) { toast('Deleted'); loadInventory(); }
+}
+
+/* ═══════════════════════ STAFF TAB ═══════════════════════ */
+async function loadStaff() {
+  const list = await api(`/admin/clients/${curSlug}/staff`);
+  if (!list) return;
+  const colors = { owner:'var(--accent)', manager:'var(--blue)', kitchen:'var(--accent2)', waiter:'var(--green)' };
+  if (!list.length) {
+    $('staff-list').innerHTML = '<div class="empty" style="padding:30px"><div class="ico">👤</div><div class="t">No staff yet</div></div>';
+    return;
+  }
+  $('staff-list').innerHTML = '<div class="tbl-wrap"><table>' +
+    '<tr><th>Name</th><th>Role</th><th>Phone</th><th>PIN</th><th>Actions</th></tr>' +
+    list.map(s => `<tr>
+      <td><b>${s.name}</b></td>
+      <td><span class="bdg" style="background:${(colors[s.role]||'#888')}22;color:${colors[s.role]||'#888'}">${s.role}</span></td>
+      <td style="font-family:monospace;font-size:12px">+${s.phone}</td>
+      <td style="font-family:monospace">${s.pin}</td>
+      <td><button class="btn danger sm" onclick="delStaff(${s.id})">Remove</button></td>
+    </tr>`).join('') + '</table></div>';
+}
+async function addStaff() {
+  const body = { name:$('ns-name').value.trim(), phone:$('ns-phone').value.trim(),
+    role:$('ns-role').value, pin:$('ns-pin').value.trim() };
+  if (!body.name||!body.phone||!body.pin) { toast('All fields required','er'); return; }
+  const r = await api(`/admin/clients/${curSlug}/staff`, 'POST', body);
+  if (r) { toast('Added'); ['ns-name','ns-phone','ns-pin'].forEach(k=>$(k).value=''); loadStaff(); }
+}
+async function delStaff(id) {
+  if (!confirm('Remove this staff member?')) return;
+  const r = await api(`/admin/clients/${curSlug}/staff/${id}`, 'DELETE');
+  if (r) loadStaff();
+}
+
+/* ═══════════════════════ QR CODES TAB ═══════════════════════ */
+async function loadQR() {
+  $('qr-grid').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const list = await api(`/admin/clients/${curSlug}/qr-codes`);
+  if (!list) return;
+  $('qr-grid').innerHTML = '<div class="qr-grid">' + list.map(q => `
+    <div class="qr-card">
+      <img src="${q.qr_image}" alt="${q.table}">
+      <div class="qr-tnum">${q.table}</div>
+      <div class="qr-secret">Secret: ${q.secret}</div>
+      <div style="margin-top:8px"><button class="copy-btn" onclick="copyText('${q.reg_url}',this)">Copy URL</button></div>
+    </div>`).join('') + '</div>';
 }
 
 function copyText(text, btn) {
   navigator.clipboard.writeText(text);
-  btn.textContent = '✅ Copied!';
-  setTimeout(() => btn.textContent = 'Copy', 2000);
+  const orig = btn.textContent; btn.textContent = '✅ Copied';
+  setTimeout(() => btn.textContent = orig, 1800);
 }
 
-// ── CLIENT VIEW (Admin sees everything) ───────────────────────────────────────
-function openClientView(slug, name) {
-  currentSlug = slug;
-  document.getElementById('cv-title').textContent = `👁️ ${name}`;
-  document.querySelectorAll('.cv-tab').forEach((t,i) => { t.classList.toggle('active', i===0); });
-  document.querySelectorAll('.cv-section').forEach((s,i) => { s.classList.toggle('active', i===0); });
-  document.getElementById('cv-modal').classList.add('open');
-  loadCVOverview();
-}
-
-function cvTab(id, btn) {
-  document.querySelectorAll('.cv-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.cv-section').forEach(s => s.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('cv-'+id).classList.add('active');
-  const loaders = {
-    overview: loadCVOverview, menu: loadCVMenu, 'orders-section': loadCVOrders,
-    customers: loadCVCustomers, inventory: loadCVInventory, reports: loadCVReports, staff: loadCVStaff
-  };
-  if (loaders[id]) loaders[id]();
-}
-
-async function loadCVOverview() {
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/overview`, { headers: {'x-admin-secret':ADMIN_SECRET} });
-  const d = await r.json();
-  document.getElementById('cv-total').textContent   = '₹' + d.today.total.toFixed(0);
-  document.getElementById('cv-orders').textContent  = d.today.orders;
-  document.getElementById('cv-tables').textContent  = `${d.occupied_count}/${d.total_tables}`;
-  document.getElementById('cv-custs').textContent   = d.customer_count;
-  const lt = document.getElementById('cv-live-tables');
-  if (!d.live_tables.length) { lt.innerHTML = '<div style="color:var(--muted);font-size:13px">No tables occupied</div>'; return; }
-  lt.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px">${d.live_tables.map(t =>
-    `<div style="background:var(--surface2);border:1px solid rgba(255,107,53,0.3);border-radius:12px;padding:12px 16px;min-width:140px">
-      <div style="font-family:Syne,sans-serif;font-size:16px;font-weight:700">${t.table}</div>
-      <div style="font-size:12px;color:var(--muted)">${t.name}</div>
-      <div style="font-size:13px;color:var(--accent)">₹${t.total}</div>
-    </div>`).join('')}</div>`;
-}
-
-async function loadCVMenu() {
-  document.getElementById('cv-menu-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/menu`, { headers: {'x-admin-secret':ADMIN_SECRET} });
-  const items = await r.json();
-  if (!items.length) { document.getElementById('cv-menu-content').innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No menu items. Click "+ Add Item" to start.</div>'; return; }
-  let html = '<table><tr><th>Name</th><th>Category</th><th>Price</th><th>Type</th><th>Available</th><th>Actions</th></tr>';
-  items.forEach(i => {
-    html += `<tr>
-      <td>${i.name}${i.bestseller==='yes'?' ⭐':''}</td>
-      <td>${i.category}</td>
-      <td>₹${i.price}</td>
-      <td>${i.type==='veg'?'🟢':'🔴'} ${i.type}</td>
-      <td>${i.available==='Yes'?'<span class="badge-g">Yes</span>':'<span class="badge-r">No</span>'}</td>
-      <td style="display:flex;gap:6px">
-        <button class="btn-sm edit" onclick='editMenuItem(${JSON.stringify(i)})'>Edit</button>
-        <button class="btn-sm danger" onclick="deleteMenuItem(${i.id})">Delete</button>
-      </td></tr>`;
-  });
-  html += '</table>';
-  document.getElementById('cv-menu-content').innerHTML = html;
-}
-
-function openMenuItemModal(item=null) {
-  document.getElementById('mi-edit-id').value = item ? item.id : '';
-  document.getElementById('mi-modal-title').textContent = item ? 'Edit Menu Item' : 'Add Menu Item';
-  document.getElementById('mi-name').value  = item?.name || '';
-  document.getElementById('mi-cat').value   = item?.category || '';
-  document.getElementById('mi-price').value = item?.price || '';
-  document.getElementById('mi-type').value  = item?.type || 'veg';
-  document.getElementById('mi-avail').value = item?.available || 'Yes';
-  document.getElementById('mi-best').value  = item?.bestseller || 'no';
-  document.getElementById('mi-desc').value  = item?.description || '';
-  document.getElementById('mi-img').value   = item?.image || '';
-  document.getElementById('menu-item-modal').classList.add('open');
-}
-
-function editMenuItem(item) { openMenuItemModal(item); }
-
-async function saveMenuItem() {
-  const id = document.getElementById('mi-edit-id').value;
-  const body = {
-    name: document.getElementById('mi-name').value.trim(),
-    category: document.getElementById('mi-cat').value.trim() || 'Main Course',
-    price: parseFloat(document.getElementById('mi-price').value),
-    type: document.getElementById('mi-type').value,
-    available: document.getElementById('mi-avail').value,
-    bestseller: document.getElementById('mi-best').value,
-    description: document.getElementById('mi-desc').value.trim(),
-    image: document.getElementById('mi-img').value.trim(),
-  };
-  if (!body.name || !body.price) { showToast('Name and Price required','error'); return; }
-  const url = id ? `${BASE}/admin/clients/${currentSlug}/menu/${id}` : `${BASE}/admin/clients/${currentSlug}/menu`;
-  const method = id ? 'PATCH' : 'POST';
-  const r = await fetch(url, { method, headers:{'Content-Type':'application/json','x-admin-secret':ADMIN_SECRET}, body:JSON.stringify(body) });
-  const d = await r.json();
-  showToast(d.message||'Saved!', r.ok?'success':'error');
-  if (r.ok) { document.getElementById('menu-item-modal').classList.remove('open'); loadCVMenu(); }
-}
-
-async function deleteMenuItem(id) {
-  if (!confirm('Delete this item?')) return;
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/menu/${id}`, { method:'DELETE', headers:{'x-admin-secret':ADMIN_SECRET} });
-  const d = await r.json();
-  showToast(d.success?'Deleted':'Error', d.success?'success':'error');
-  if (d.success) loadCVMenu();
-}
-
-// CSV Import
-function openImportModal() { document.getElementById('csv-file-input').click(); }
-
-async function handleCSVUpload(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const text = await file.text();
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/import-menu`, {
-    method:'POST', headers:{'x-admin-secret':ADMIN_SECRET,'Content-Type':'text/plain'}, body:text
-  });
-  const d = await r.json();
-  showToast(d.success ? `✅ ${d.message}` : '❌ Import failed', d.success?'success':'error');
-  if (d.success) loadCVMenu();
-  input.value = '';
-}
-
-async function loadCVOrders() {
-  document.getElementById('cv-orders-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/orders`, { headers:{'x-admin-secret':ADMIN_SECRET} });
-  const orders = await r.json();
-  if (!orders.length) { document.getElementById('cv-orders-content').innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No orders today</div>'; return; }
-  let html = '<table><tr><th>Time</th><th>Table</th><th>Customer</th><th>Total</th><th>Payment</th><th>Status</th></tr>';
-  orders.forEach(o => { html += `<tr><td style="font-size:12px">${(o.date||'').split(',')[1]||''}</td><td>${o.table_name}</td><td>${o.customer_name}</td><td>₹${parseFloat(o.total).toFixed(0)}</td><td>${o.payment_method}</td><td><span class="badge-g">${o.status}</span></td></tr>`; });
-  html += '</table>';
-  document.getElementById('cv-orders-content').innerHTML = html;
-}
-
-async function loadCVCustomers() {
-  document.getElementById('cv-customers-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/customers`, { headers:{'x-admin-secret':ADMIN_SECRET} });
-  const custs = await r.json();
-  if (!custs.length) { document.getElementById('cv-customers-content').innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No customers yet</div>'; return; }
-  let html = '<table><tr><th>Name</th><th>Phone</th><th>Visits</th><th>Spent</th><th>Last Visit</th><th>Type</th></tr>';
-  custs.forEach(c => { html += `<tr><td>${c.name}</td><td style="font-family:monospace;font-size:12px">${c.phone}</td><td>${c.total_visits}</td><td>₹${parseFloat(c.total_spent).toFixed(0)}</td><td>${c.last_visit}</td><td>${parseInt(c.total_visits)>=2?'<span class="badge-o">⭐ Premium</span>':'<span class="badge-g">Regular</span>'}</td></tr>`; });
-  html += '</table>';
-  document.getElementById('cv-customers-content').innerHTML = html;
-}
-
-async function loadCVInventory() {
-  document.getElementById('cv-inventory-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/inventory`, { headers:{'x-admin-secret':ADMIN_SECRET} });
-  const items = await r.json();
-  if (!items.length) { document.getElementById('cv-inventory-content').innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No inventory items</div>'; return; }
-  let html = '<table><tr><th>Item</th><th>Unit</th><th>Stock</th><th>Min</th><th>Status</th></tr>';
-  items.forEach(i => { const low=parseFloat(i.current_stock)<=parseFloat(i.min_threshold); html += `<tr><td>${i.item_name}</td><td>${i.unit}</td><td>${i.current_stock}</td><td>${i.min_threshold}</td><td>${low?'<span class="badge-r">⚠️ Low</span>':'<span class="badge-g">OK</span>'}</td></tr>`; });
-  html += '</table>';
-  document.getElementById('cv-inventory-content').innerHTML = html;
-}
-
-async function loadCVReports() {
-  document.getElementById('cv-reports-content').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/reports`, { headers:{'x-admin-secret':ADMIN_SECRET} });
-  const rows = await r.json();
-  if (!rows.length) { document.getElementById('cv-reports-content').innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No report data</div>'; return; }
-  let html = '<table><tr><th>Date</th><th>Orders</th><th>Cash</th><th>Online</th><th>Total</th></tr>';
-  rows.forEach(r => { html += `<tr><td>${r.date}</td><td>${r.total_orders}</td><td>₹${parseFloat(r.cash_amount).toFixed(0)}</td><td>₹${parseFloat(r.online_amount).toFixed(0)}</td><td><strong>₹${parseFloat(r.total_amount).toFixed(0)}</strong></td></tr>`; });
-  html += '</table>';
-  document.getElementById('cv-reports-content').innerHTML = html;
-}
-
-async function loadCVStaff() {
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/staff`, { headers:{'x-admin-secret':ADMIN_SECRET} });
-  const staff = await r.json();
-  const roleColors = {owner:'var(--accent)',manager:'var(--blue)',kitchen:'var(--accent2)',waiter:'var(--green)'};
-  const list = document.getElementById('cv-staff-list');
-  if (!staff.length) { list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">No staff members yet</div>'; return; }
-  list.innerHTML = staff.map(s => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-weight:600">${s.name}</div>
-        <div style="font-size:12px;color:var(--muted)">${s.phone} | PIN: ${s.pin}</div>
+/* ═══════════════════════ SETTINGS TAB ═══════════════════════ */
+async function loadSettings() {
+  $('settings-form-area').innerHTML = '<div class="loading"><div class="spin"></div>Loading...</div>';
+  const s = await api(`/admin/clients/${curSlug}/full-settings`);
+  if (!s) return;
+  $('settings-form-area').innerHTML = `
+    <div class="form-section">
+      <div class="fs-title">🏪 Restaurant Info</div>
+      <div class="form-row">
+        <div class="fg"><label>Name</label><input class="ti" id="s-name" value="${esc(s.restaurant_name)}"></div>
+        <div class="fg"><label>Slug (read only)</label><input class="ti" value="${curSlug}" disabled></div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(255,255,255,0.05);color:${roleColors[s.role]||'#888'}">${s.role}</span>
-        <button onclick="deleteStaff(${s.id})" class="btn-sm danger">Delete</button>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">🎨 Branding</div>
+      <div class="form-row">
+        <div class="fg"><label>Logo URL</label><input class="ti" id="s-logo" value="${esc(s.logo_url)}"></div>
+        <div class="fg"><label>Primary Color</label><input class="ti" id="s-color" value="${esc(s.primary_color)}"></div>
       </div>
-    </div>`).join('');
+      <div class="form-row">
+        <div class="fg"><label>Welcome Message</label><input class="ti" id="s-welcome" value="${esc(s.welcome_message)}"></div>
+        <div class="fg"><label>Banner Image URL</label><input class="ti" id="s-banner" value="${esc(s.banner_image)}"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">📱 Evolution API</div>
+      <div class="fg"><label>Evolution URL</label><input class="ti" id="s-evo-url" value="${esc(s.evolution_url)}"></div>
+      <div class="form-row">
+        <div class="fg"><label>API Key</label><input class="ti" id="s-evo-key" value="${esc(s.evolution_key)}"></div>
+        <div class="fg"><label>Instance Name</label><input class="ti" id="s-evo-instance" value="${esc(s.evolution_instance)}"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">👥 Staff Numbers</div>
+      <div class="form-row">
+        <div class="fg"><label>Owner</label><input class="ti" id="s-owner" value="${esc(s.staff_owner)}"></div>
+        <div class="fg"><label>Manager</label><input class="ti" id="s-manager" value="${esc(s.staff_manager)}"></div>
+      </div>
+      <div class="fg"><label>Kitchen</label><input class="ti" id="s-kitchen" value="${esc(s.staff_kitchen)}"></div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">💳 Payment</div>
+      <div class="form-row">
+        <div class="fg"><label>Method</label><select class="ti" id="s-payment"><option value="upi"${s.payment_method==='upi'?' selected':''}>UPI</option><option value="razorpay"${s.payment_method==='razorpay'?' selected':''}>Razorpay</option></select></div>
+        <div class="fg"><label>UPI ID</label><input class="ti" id="s-upi" value="${esc(s.upi_id)}"></div>
+      </div>
+      <div class="fg"><label>UPI Display Name</label><input class="ti" id="s-upi-name" value="${esc(s.upi_name)}"></div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">🪑 Tables & Business</div>
+      <div class="form-row three">
+        <div class="fg"><label>Tables</label><input class="ti" type="number" id="s-tables" value="${s.table_count}"></div>
+        <div class="fg"><label>GST (%)</label><input class="ti" type="number" id="s-gst" value="${Math.round((s.gst_rate||0)*100)}"></div>
+        <div class="fg"><label>Premium Threshold</label><input class="ti" type="number" id="s-premium" value="${s.premium_threshold}"></div>
+      </div>
+      <div class="fg"><label>Google Review URL</label><input class="ti" id="s-review" value="${esc(s.google_review_url)}"></div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">🎉 Festival Mode</div>
+      <div class="form-row three">
+        <div class="fg"><label>Active?</label><select class="ti" id="s-fest-active"><option value="false"${!s.festival_active?' selected':''}>No</option><option value="true"${s.festival_active?' selected':''}>Yes</option></select></div>
+        <div class="fg"><label>Festival Name</label><input class="ti" id="s-fest-name" value="${esc(s.festival_name)}"></div>
+        <div class="fg"><label>Discount %</label><input class="ti" type="number" id="s-fest-disc" value="${s.discount_percent}"></div>
+      </div>
+      <div class="form-row">
+        <div class="fg"><label>Start (YYYY-MM-DD)</label><input class="ti" id="s-fest-start" value="${esc(s.festival_start)}"></div>
+        <div class="fg"><label>End (YYYY-MM-DD)</label><input class="ti" id="s-fest-end" value="${esc(s.festival_end)}"></div>
+      </div>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">🔐 Access</div>
+      <div class="fg"><label>Owner Dashboard Password</label><input class="ti" id="s-dash-pass" value="${esc(s.dashboard_password)}"></div>
+      <div class="fg"><label>Gotenberg URL (PDF)</label><input class="ti" id="s-gotenberg" value="${esc(s.gotenberg_url)}"></div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:30px">
+      <button class="btn" onclick="loadSettings()">Reset</button>
+      <button class="btn primary" onclick="saveSettings()">Save All Settings</button>
+    </div>
+  `;
 }
 
-async function addStaff() {
+function esc(v) { return (v == null ? '' : String(v)).replace(/"/g,'&quot;'); }
+
+async function saveSettings() {
   const body = {
-    name: document.getElementById('ns-name').value.trim(),
-    phone: document.getElementById('ns-phone').value.trim(),
-    role: document.getElementById('ns-role').value,
-    pin: document.getElementById('ns-pin').value.trim(),
+    restaurant_name: $('s-name').value.trim(),
+    logo_url: $('s-logo').value.trim(),
+    primary_color: $('s-color').value.trim(),
+    welcome_message: $('s-welcome').value.trim(),
+    banner_image: $('s-banner').value.trim(),
+    evolution_url: $('s-evo-url').value.trim(),
+    evolution_key: $('s-evo-key').value.trim(),
+    evolution_instance: $('s-evo-instance').value.trim(),
+    staff_owner: $('s-owner').value.trim(),
+    staff_manager: $('s-manager').value.trim(),
+    staff_kitchen: $('s-kitchen').value.trim(),
+    payment_method: $('s-payment').value,
+    upi_id: $('s-upi').value.trim(),
+    upi_name: $('s-upi-name').value.trim(),
+    table_count: parseInt($('s-tables').value)||10,
+    gst_rate: (parseFloat($('s-gst').value)||5)/100,
+    premium_threshold: parseInt($('s-premium').value)||2,
+    google_review_url: $('s-review').value.trim(),
+    festival_active: $('s-fest-active').value === 'true',
+    festival_name: $('s-fest-name').value.trim(),
+    discount_percent: parseInt($('s-fest-disc').value)||0,
+    festival_start: $('s-fest-start').value.trim(),
+    festival_end: $('s-fest-end').value.trim(),
+    dashboard_password: $('s-dash-pass').value.trim(),
+    gotenberg_url: $('s-gotenberg').value.trim(),
   };
-  if (!body.name||!body.phone||!body.pin) { showToast('All fields required','error'); return; }
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/staff`, {
-    method:'POST', headers:{'Content-Type':'application/json','x-admin-secret':ADMIN_SECRET}, body:JSON.stringify(body)
-  });
-  const d = await r.json();
-  showToast(d.message||(d.success?'Added!':'Error'), d.success?'success':'error');
-  if (d.success) { ['ns-name','ns-phone','ns-pin'].forEach(id=>document.getElementById(id).value=''); loadCVStaff(); }
+  const r = await api(`/admin/clients/${curSlug}/full-settings`, 'PATCH', body);
+  if (r && r.success) {
+    toast('✅ Settings saved');
+    // Refresh client list to reflect new branding
+    const fresh = await api('/admin/clients');
+    if (fresh) allClients = fresh;
+    openDetail(curSlug);
+  }
 }
 
-async function deleteStaff(id) {
-  if (!confirm('Remove this staff member?')) return;
-  const r = await fetch(`${BASE}/admin/clients/${currentSlug}/staff/${id}`, { method:'DELETE', headers:{'x-admin-secret':ADMIN_SECRET} });
-  const d = await r.json();
-  if (d.success) loadCVStaff();
+/* ═══════════════════════ WEBHOOKS TAB ═══════════════════════ */
+function showWebhook() {
+  const wa  = `${BASE}/webhook/${curSlug}/whatsapp`;
+  const rzp = `${BASE}/webhook/${curSlug}/razorpay-webhook`;
+  $('webhook-content').innerHTML = `
+    <div class="form-section">
+      <div class="fs-title">🟢 WhatsApp Webhook (Evolution API)</div>
+      <div style="font-family:monospace;font-size:13px;color:var(--accent2);word-break:break-all;background:var(--surface2);padding:14px;border-radius:8px;border:1px solid var(--border)">${wa}</div>
+      <button class="btn ghost sm" style="margin-top:10px" onclick="copyText('${wa}',this)">📋 Copy</button>
+    </div>
+    <div class="form-section">
+      <div class="fs-title">💳 Razorpay Webhook</div>
+      <div style="font-family:monospace;font-size:13px;color:var(--accent2);word-break:break-all;background:var(--surface2);padding:14px;border-radius:8px;border:1px solid var(--border)">${rzp}</div>
+      <button class="btn ghost sm" style="margin-top:10px" onclick="copyText('${rzp}',this)">📋 Copy</button>
+    </div>`;
 }
 
-// ── TOAST ─────────────────────────────────────────────────────────────────────
-function showToast(msg, type='success') {
-  const t=document.getElementById('toast');
-  document.getElementById('toast-icon').textContent = type==='success'?'✅':'❌';
-  document.getElementById('toast-msg').textContent = msg;
-  t.className='toast show';
-  setTimeout(()=>t.className='toast',3500);
-}
-
-// Auto-generate slug
+/* ═══════════════════════ BOOT ═══════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('f-name').addEventListener('input', function() {
-    if (!document.getElementById('edit-slug').value)
-      document.getElementById('f-slug').value = this.value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,20);
+  // Auto-generate slug from name in add form
+  $('f-name').addEventListener('input', function() {
+    if (!$('f-slug').value || $('f-slug').dataset.auto !== '0') {
+      $('f-slug').value = this.value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,20);
+      $('f-slug').dataset.auto = '1';
+    }
   });
+  $('f-slug').addEventListener('input', () => { $('f-slug').dataset.auto = '0'; });
 });
 </script>
 </body>
