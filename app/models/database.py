@@ -6,7 +6,7 @@ Two layers:
 """
 from sqlalchemy import (
     create_engine, Column, Integer, String, Numeric,
-    Boolean, Text, TIMESTAMP, func
+    Boolean, Text, TIMESTAMP, func, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 import os
@@ -229,9 +229,64 @@ class MenuItem(TenantBase):
     bestseller  = Column(String, default="no")
 
 
+# ── Postgres type mapping for auto-migration ──────────────────────────────────
+def _pg_type_for(col: Column) -> str:
+    """Map a SQLAlchemy Column to a Postgres column type string."""
+    t = col.type.__class__.__name__
+    return {
+        "Integer":   "INTEGER",
+        "String":    "VARCHAR",
+        "Text":      "TEXT",
+        "Numeric":   "NUMERIC",
+        "Boolean":   "BOOLEAN",
+        "TIMESTAMP": "TIMESTAMP",
+    }.get(t, "TEXT")
+
+
+def _format_default(col: Column):
+    """Render a SQL literal for the column's Python-side default, or None."""
+    d = col.default
+    if d is None or d.is_callable or d.is_sequence:
+        return None
+    val = d.arg
+    if isinstance(val, bool):
+        return "TRUE" if val else "FALSE"
+    if isinstance(val, (int, float)):
+        return str(val)
+    if isinstance(val, str):
+        escaped = val.replace("'", "''")
+        return f"'{escaped}'"
+    return None
+
+
+def migrate_master_db():
+    """
+    Idempotent auto-migration: for every table in MasterBase, add any columns
+    the model declares but the live DB is missing. Safe to run on every startup.
+    Only ADDS columns — never drops or alters existing ones.
+    """
+    insp = inspect(master_engine)
+    with master_engine.begin() as conn:
+        for table in MasterBase.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue  # create_all() will handle brand new tables
+            existing_cols = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing_cols:
+                    continue
+                col_type = _pg_type_for(col)
+                default_sql = _format_default(col)
+                stmt = f'ALTER TABLE "{table.name}" ADD COLUMN IF NOT EXISTS "{col.name}" {col_type}'
+                if default_sql is not None:
+                    stmt += f" DEFAULT {default_sql}"
+                conn.execute(text(stmt))
+                print(f"🛠  Added missing column: {table.name}.{col.name} ({col_type})")
+
+
 def setup_master_db():
-    """Create master DB tables — clients + staff_members."""
+    """Create master DB tables — clients + staff_members — and run auto-migration."""
     MasterBase.metadata.create_all(bind=master_engine)
+    migrate_master_db()
     print("✅ Master DB tables created")
     print("✅ Master DB ready. Now add clients via POST /admin/clients")
 
