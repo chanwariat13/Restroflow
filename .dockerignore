@@ -1,4 +1,36 @@
+# Python
 __pycache__
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Virtual envs
+.venv
+venv
+env
+
+# Secrets / local config — NEVER copy these into the image
 .env
+.env.*
+*.pem
+*.key
+
+# VCS
 .git
+.gitignore
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Logs / build artifacts
+*.log
+dist
+build
