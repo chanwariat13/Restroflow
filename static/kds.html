@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Kitchen Display</title>
+<style>
+  /*  Self-contained — no external assets so it works on a kitchen tablet
+      that has flaky internet during the dinner rush.                     */
+  :root{
+    --bg:#0b1020; --panel:#121933; --line:#222a4a;
+    --fg:#f5f7ff; --muted:#9aa3c7;
+    --fresh:#22c55e; --warn:#f59e0b; --crit:#ef4444;
+    --accent:#ff6b35;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font:600 16px/1.3 system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);background:#0e1530;position:sticky;top:0;z-index:5}
+  header h1{margin:0;font-size:20px;letter-spacing:.5px}
+  header .meta{font-size:13px;color:var(--muted)}
+  header .meta b{color:var(--fg)}
+  #status{font-size:12px;color:var(--muted);margin-left:8px}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;padding:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;min-height:240px;box-shadow:0 6px 18px rgba(0,0,0,.25);position:relative;overflow:hidden}
+  .card .stripe{position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--fresh)}
+  .card.warn .stripe{background:var(--warn)}
+  .card.crit .stripe{background:var(--crit)}
+  .card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:8px}
+  .card .table{font-size:30px;font-weight:800;letter-spacing:.5px}
+  .card .name{font-size:13px;color:var(--muted);margin-top:2px}
+  .card .badge{font-size:12px;padding:3px 8px;border-radius:999px;background:#1a2350;color:#cdd6ff;border:1px solid #243067}
+  .card .timer{font-variant-numeric:tabular-nums;font-size:18px;font-weight:700}
+  .card.warn .timer{color:var(--warn)}
+  .card.crit .timer{color:var(--crit);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+  .items{padding:8px 8px 0 14px;flex:1;overflow:auto;border-top:1px dashed var(--line)}
+  .items li{margin:6px 0;font-size:18px}
+  .items li small{display:block;color:var(--muted);font-weight:500;font-size:13px}
+  .actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding-left:8px}
+  .actions button{appearance:none;border:1px solid var(--line);border-radius:10px;background:#1a2350;color:var(--fg);padding:10px 6px;font-weight:700;font-size:13px;cursor:pointer;transition:.12s}
+  .actions button:hover{background:#243069}
+  .actions button.primary{background:var(--accent);border-color:var(--accent);color:#1a0a00}
+  .actions button.print{background:#243069}
+  .empty{padding:80px 20px;text-align:center;color:var(--muted);font-size:18px}
+  /* login modal */
+  #login{position:fixed;inset:0;background:rgba(2,5,15,.85);display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
+  #login.show{display:flex}
+  #login .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;max-width:360px;width:100%}
+  #login h2{margin:0 0 6px}
+  #login p{margin:0 0 14px;color:var(--muted);font-size:13px}
+  #login input{display:block;width:100%;margin-bottom:10px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:#0e1530;color:var(--fg);font-size:16px}
+  #login button{width:100%;padding:12px;border-radius:10px;border:0;background:var(--accent);color:#1a0a00;font-weight:800;font-size:16px;cursor:pointer}
+  #login .err{color:#ff7878;font-size:13px;min-height:18px;margin-bottom:8px}
+  /* big screens / tablet horizontal */
+  @media(min-width:1400px){
+    #grid{grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+    .card .table{font-size:34px}
+    .items li{font-size:20px}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="title">Kitchen Display</h1>
+      <div class="meta" id="meta">Connecting…</div>
+    </div>
+    <div class="meta">
+      Updated <b id="updated">—</b> <span id="status"></span>
+      <button id="logout" style="margin-left:14px;background:#1a2350;color:#cdd6ff;border:1px solid var(--line);padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-size:12px">Log out</button>
+    </div>
+  </header>
+
+  <main id="grid"><div class="empty">Waiting for orders…</div></main>
+
+  <!-- Auth modal -->
+  <div id="login">
+    <div class="box">
+      <h2>KDS Sign-In</h2>
+      <p>Enter staff phone &amp; PIN. Stays signed in on this tablet.</p>
+      <div class="err" id="err"></div>
+      <input id="phone" placeholder="Phone number" autocomplete="off" inputmode="tel">
+      <input id="pin" type="password" placeholder="PIN" autocomplete="off" inputmode="numeric">
+      <button id="signin">Sign in</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const slug   = location.pathname.split('/').filter(Boolean).pop();
+  const KEY    = `kds:${slug}`;
+  const grid   = document.getElementById('grid');
+  const titleEl= document.getElementById('title');
+  const metaEl = document.getElementById('meta');
+  const updEl  = document.getElementById('updated');
+  const statusEl = document.getElementById('status');
+  const loginEl = document.getElementById('login');
+  const errEl  = document.getElementById('err');
+
+  function readCreds(){
+    try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; }
+  }
+  function writeCreds(c){ localStorage.setItem(KEY, JSON.stringify(c)); }
+  function clearCreds(){ localStorage.removeItem(KEY); }
+
+  function fmtElapsed(s){
+    s = Math.max(0, Math.floor(s));
+    const m = Math.floor(s/60), sec = s%60;
+    return `${m}m ${String(sec).padStart(2,'0')}s`;
+  }
+
+  let lastTickets = [];
+
+  function render(data){
+    titleEl.textContent = `Kitchen — ${data.restaurant_name || slug}`;
+    metaEl.textContent = `${data.tickets.length} active ticket${data.tickets.length===1?'':'s'}`;
+    updEl.textContent = (data.fetched_at||'').slice(11,19);
+
+    if (!data.tickets.length){
+      grid.innerHTML = '<div class="empty">No active tickets. Tablet idle.</div>';
+      lastTickets = [];
+      return;
+    }
+    lastTickets = data.tickets;
+
+    grid.innerHTML = data.tickets.map(t => {
+      const cls = t.elapsed_bucket==='critical' ? 'crit' :
+                  t.elapsed_bucket==='warning'  ? 'warn' : '';
+      const items = (t.items||[]).map(it => {
+        const qty  = it.quantity || it.qty || 1;
+        const name = it.name || '—';
+        const mods = (it.modifiers||it.variants||[]);
+        const note = it.notes || '';
+        return `<li><b>${qty}× ${escape(name)}</b>
+          ${mods.length ? `<small>+ ${mods.map(escape).join(', ')}</small>` : ''}
+          ${note ? `<small>↳ ${escape(note)}</small>` : ''}</li>`;
+      }).join('');
+      return `
+        <div class="card ${cls}" data-table="${escape(t.table)}">
+          <div class="stripe"></div>
+          <div class="top">
+            <div>
+              <div class="table">${escape(t.table)}</div>
+              <div class="name">${escape(t.name||'')}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="badge">${escape(t.kitchen_status||'Queued')}</div>
+              <div class="timer" data-ts="${t.elapsed_seconds}">${fmtElapsed(t.elapsed_seconds)}</div>
+            </div>
+          </div>
+          <ul class="items">${items}</ul>
+          <div class="actions">
+            <button data-action="status" data-status="Preparing">Start</button>
+            <button data-action="status" data-status="Ready" class="primary">Ready</button>
+            <button data-action="print" class="print">Print KOT</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // Local timer tick — update card timers smoothly between fetches.
+  setInterval(() => {
+    document.querySelectorAll('.timer').forEach(el => {
+      const t = Number(el.getAttribute('data-ts')||0) + 1;
+      el.setAttribute('data-ts', t);
+      el.textContent = fmtElapsed(t);
+      const card = el.closest('.card');
+      card.classList.remove('warn','crit');
+      if (t >= 15*60) card.classList.add('crit');
+      else if (t >= 5*60) card.classList.add('warn');
+    });
+  }, 1000);
+
+  async function fetchTickets(){
+    const c = readCreds(); if (!c){ loginEl.classList.add('show'); return; }
+    statusEl.textContent = '…';
+    try {
+      const r = await fetch(`/api/kds/${encodeURIComponent(slug)}?phone=${encodeURIComponent(c.phone)}&pin=${encodeURIComponent(c.pin)}`);
+      if (r.status === 401 || r.status === 403){
+        clearCreds(); loginEl.classList.add('show');
+        statusEl.textContent = 'unauthorised';
+        return;
+      }
+      const data = await r.json();
+      render(data);
+      statusEl.textContent = '';
+    } catch (e) {
+      statusEl.textContent = 'offline';
+    }
+  }
+
+  async function postAction(table, body){
+    const c = readCreds(); if (!c) return;
+    const payload = { slug, phone: c.phone, pin: c.pin, table, ...body };
+    const path = body.action === 'print'
+      ? '/api/kds/kot/print' : '/api/kds/status';
+    delete payload.action;
+    return fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+  }
+
+  grid.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('button[data-action]');
+    if (!btn) return;
+    const card = btn.closest('.card'); const table = card?.dataset.table;
+    if (!table) return;
+    btn.disabled = true; const prev = btn.textContent; btn.textContent = '…';
+    try {
+      const action = btn.dataset.action;
+      if (action === 'status') {
+        await postAction(table, { action, status: btn.dataset.status });
+      } else {
+        await postAction(table, { action: 'print' });
+      }
+      await fetchTickets();
+    } finally {
+      btn.disabled = false; btn.textContent = prev;
+    }
+  });
+
+  // Login
+  document.getElementById('signin').addEventListener('click', async () => {
+    const phone = document.getElementById('phone').value.trim();
+    const pin   = document.getElementById('pin').value.trim();
+    errEl.textContent = '';
+    if (!phone || !pin){ errEl.textContent = 'Phone & PIN required'; return; }
+    try {
+      // Validate against the existing staff login endpoint.
+      const r = await fetch('/api/staff/login', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ slug, phone, pin }),
+      });
+      const j = await r.json();
+      if (!j.success) { errEl.textContent = j.error || 'Sign-in failed'; return; }
+      if (!['kitchen','owner','manager'].includes(j.role)){
+        errEl.textContent = `Role ${j.role} cannot operate KDS`; return;
+      }
+      writeCreds({ phone, pin });
+      loginEl.classList.remove('show');
+      fetchTickets();
+    } catch {
+      errEl.textContent = 'Network error';
+    }
+  });
+
+  document.getElementById('logout').addEventListener('click', () => {
+    clearCreds(); loginEl.classList.add('show');
+  });
+
+  // Polling — every 5s by default; backs off when tab is hidden.
+  function escape(s){ return String(s||'').replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c])); }
+  let timer = null;
+  function poll(){ fetchTickets(); timer = setTimeout(poll, document.hidden ? 30000 : 5000); }
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(timer); poll();
+  });
+  poll();
+})();
+</script>
+</body></html>
