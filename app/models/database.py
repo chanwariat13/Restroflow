@@ -45,6 +45,7 @@ class Client(MasterBase):
     upi_name           = Column(String, default="")
     razorpay_key_id    = Column(String, default="")
     razorpay_key_secret= Column(String, default="")
+    razorpay_webhook_secret = Column(String, default="")  # NEW: separate webhook secret for signature verification
 
     # Tables
     table_count        = Column(Integer, default=10)
@@ -54,6 +55,7 @@ class Client(MasterBase):
 
     # Business rules
     gst_rate           = Column(Numeric, default=0.05)
+    gstin              = Column(String, default="")    # NEW: GSTIN of the restaurant for B2B invoice
     session_ttl        = Column(Integer, default=10800)
     premium_threshold  = Column(Integer, default=2)
     cleanup_minutes    = Column(Integer, default=30)
@@ -97,7 +99,27 @@ class StaffMember(MasterBase):
     role       = Column(String, nullable=False)          # owner/manager/kitchen/waiter
     pin        = Column(String, nullable=False)          # 4-6 digit PIN
     active     = Column(Boolean, default=True)
+    deleted_at = Column(TIMESTAMP, nullable=True)        # NEW: soft-delete timestamp
     created_at = Column(TIMESTAMP, default=func.now())
+
+
+class AuditLog(MasterBase):
+    """
+    Audit trail. Every privileged action (admin, owner, manager) is logged here.
+    Stays append-only; never delete rows. One row = one action.
+    """
+    __tablename__ = "audit_log"
+
+    id          = Column(Integer, primary_key=True)
+    slug        = Column(String, default="", index=True)   # client slug, "" for master-level
+    actor       = Column(String, default="")               # admin name / phone / "system"
+    actor_role  = Column(String, default="")               # superadmin/owner/manager/staff/customer/system
+    action      = Column(String, default="")               # e.g. client.create, menu.delete, payment.confirm
+    target      = Column(String, default="")               # id or slug of the affected resource
+    payload     = Column(Text, default="")                 # JSON string (capped to 5000 chars)
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    created_at  = Column(TIMESTAMP, default=func.now(), index=True)
 
 
 def get_master_db():
@@ -118,6 +140,12 @@ _tenant_sessions: dict = {}  # slug → SessionLocal
 def get_tenant_engine(tenant_db_url: str, slug: str):
     if slug not in _tenant_engines:
         _tenant_engines[slug] = create_engine(tenant_db_url, pool_pre_ping=True)
+        # Lazy migration: idempotently add any missing columns to this tenant's DB.
+        # Safe to call repeatedly — only ADDs columns, never alters existing ones.
+        try:
+            migrate_tenant_db(_tenant_engines[slug], slug)
+        except Exception as e:
+            print(f"⚠️  tenant migration warning ({slug}): {e}")
     return _tenant_engines[slug]
 
 
@@ -146,6 +174,7 @@ class Order(TenantBase):
     status         = Column(String)
     created_at     = Column(TIMESTAMP, default=func.now())
     billed         = Column(Boolean, default=False)
+    customer_gstin = Column(String, default="")          # NEW: B2B GSTIN for tax invoice
 
 
 class Customer(TenantBase):
@@ -218,15 +247,17 @@ class MenuIngredient(TenantBase):
 
 class MenuItem(TenantBase):
     __tablename__ = "menu"
-    id          = Column(Integer, primary_key=True)
-    name        = Column(String, nullable=False)
-    category    = Column(String, default="Main Course")
-    price       = Column(Numeric, nullable=False)
-    available   = Column(String, default="Yes")
-    type        = Column(String, default="veg")
-    image       = Column(String, default="")
-    description = Column(String, default="")
-    bestseller  = Column(String, default="no")
+    id           = Column(Integer, primary_key=True)
+    name         = Column(String, nullable=False)
+    category     = Column(String, default="Main Course")
+    price        = Column(Numeric, nullable=False)
+    available    = Column(String, default="Yes")
+    type         = Column(String, default="veg")
+    image        = Column(String, default="")
+    description  = Column(String, default="")
+    bestseller   = Column(String, default="no")
+    gst_rate     = Column(Numeric, nullable=True)        # NEW: per-item GST override (null → use client default)
+    dietary_tags = Column(String, default="")            # NEW: csv: jain,vegan,glutenfree,egg,spicy
 
 
 # ── Postgres type mapping for auto-migration ──────────────────────────────────
@@ -265,9 +296,22 @@ def migrate_master_db():
     the model declares but the live DB is missing. Safe to run on every startup.
     Only ADDS columns — never drops or alters existing ones.
     """
-    insp = inspect(master_engine)
-    with master_engine.begin() as conn:
-        for table in MasterBase.metadata.sorted_tables:
+    _migrate_metadata(master_engine, MasterBase)
+
+
+def migrate_tenant_db(engine, slug: str):
+    """Same as migrate_master_db but for a tenant's own DB."""
+    _migrate_metadata(engine, TenantBase)
+
+
+def _migrate_metadata(engine, base):
+    """
+    Shared idempotent migrator. For every table the metadata declares, ALTER TABLE
+    ADD COLUMN IF NOT EXISTS for any column missing in the live DB. Never drops.
+    """
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in base.metadata.sorted_tables:
             if not insp.has_table(table.name):
                 continue  # create_all() will handle brand new tables
             existing_cols = {c["name"] for c in insp.get_columns(table.name)}
