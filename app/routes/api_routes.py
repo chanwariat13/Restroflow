@@ -26,6 +26,7 @@ from app.utils.tenant import load_tenant, TenantConfig
 from app.utils import redis_client as rc
 from app.utils.security import verify_razorpay_signature
 from app.utils.audit import audit
+from app.utils.dates import fmt_date_short
 from app.services import whatsapp as wa
 
 router = APIRouter()
@@ -369,7 +370,7 @@ class BillRequest(BaseModel):
 async def generate_bill(req: BillRequest, slug: str = Path(...)):
     cfg   = load_tenant(slug)
     table = req.table.strip().upper()
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
 
     with cfg.db_session() as db:
         rows = db.execute(text(
@@ -660,7 +661,7 @@ async def _process_razorpay(cfg: TenantConfig, body: dict):
             items,subtotal,tax,total,payment_method,status,billed)
             VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,:method,'Paid',FALSE)
         """), {"oid": order_id, "date": now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
-               "donly": now_ist.strftime("%-d/%-m/%Y"), "name": name, "phone": phone,
+               "donly": fmt_date_short(now_ist), "name": name, "phone": phone,
                "table": table, "items": items_str, "sub": sub, "tax": tax,
                "total": total, "method": "Online"})
         db.commit()
@@ -833,7 +834,7 @@ td{{padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-ali
 async def split_bill(req: SplitBillRequest, slug: str = Path(...)):
     cfg = load_tenant(slug)
     table = req.table.strip().upper()
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
 
     if req.mode not in ("equal", "by_item"):
         return JSONResponse({"success": False, "error": "mode must be 'equal' or 'by_item'"},
@@ -1040,7 +1041,7 @@ async def unbilled_orders(slug: str = Path(...), table: str = ""):
     if not table:
         return JSONResponse({"success": False, "error": "table is required"},
                              status_code=400)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT order_id, items, subtotal, tax, total, payment_method "

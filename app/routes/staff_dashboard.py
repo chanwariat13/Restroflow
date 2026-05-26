@@ -17,6 +17,7 @@ import os
 from app.models.database import MasterSession, Client, StaffMember
 from app.utils.tenant import load_tenant
 from app.utils import redis_client as rc
+from app.utils.dates import fmt_date_short
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
@@ -114,7 +115,7 @@ async def staff_orders(slug: str, phone: str, pin: str):
     m = _auth_staff(slug, phone, pin)
     _check_perm(m, "orders")
     cfg = load_tenant(slug)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT * FROM orders WHERE date_only=:d ORDER BY created_at DESC"
@@ -246,7 +247,7 @@ async def cash_confirm(req: CashReq):
             items,subtotal,tax,total,payment_method,status,billed)
             VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,'Cash','Paid',FALSE)
         """), {"oid":order_id,"date":now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
-               "donly":now_ist.strftime("%-d/%-m/%Y"),"name":name,"phone":req.cust_phone,
+               "donly":fmt_date_short(now_ist),"name":name,"phone":req.cust_phone,
                "table":table,"items":items_str,"sub":sub,"tax":tax,"total":total})
         db.commit()
     await wa.send_text(cfg, req.cust_phone,
@@ -275,7 +276,7 @@ async def staff_overview(slug: str, phone: str, pin: str):
     m = _auth_staff(slug, phone, pin)
     _check_perm(m, "overview")
     cfg = load_tenant(slug)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT payment_method, SUM(total) as amount, COUNT(*) as cnt "
