@@ -48,6 +48,14 @@ class ClientCreate(BaseModel):
     max_session_hours:   int = 2
     gst_rate:            float = 0.05
     gstin:               str = ""
+    state_code:          str = ""
+    legal_name:          str = ""
+    pan:                 str = ""
+    kot_enabled:         bool = False
+    kot_printer_ip:      str = ""
+    kot_printer_port:    int = 9100
+    kot_paper_width:     int = 42
+    kot_header_text:     str = ""
     session_ttl:         int = 10800
     premium_threshold:   int = 2
     cleanup_minutes:     int = 30
@@ -81,6 +89,14 @@ class ClientUpdate(BaseModel):
     table_count:         Optional[int] = None
     gst_rate:            Optional[float] = None
     gstin:               Optional[str] = None
+    state_code:          Optional[str] = None
+    legal_name:          Optional[str] = None
+    pan:                 Optional[str] = None
+    kot_enabled:         Optional[bool] = None
+    kot_printer_ip:      Optional[str] = None
+    kot_printer_port:    Optional[int] = None
+    kot_paper_width:     Optional[int] = None
+    kot_header_text:     Optional[str] = None
     festival_active:     Optional[bool] = None
     festival_name:       Optional[str] = None
     festival_start:      Optional[str] = None
@@ -159,6 +175,10 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
             table_secrets=json.dumps(data.table_secrets),
             max_session_hours=data.max_session_hours, gst_rate=data.gst_rate,
             gstin=data.gstin,
+            state_code=data.state_code, legal_name=data.legal_name, pan=data.pan,
+            kot_enabled=data.kot_enabled, kot_printer_ip=data.kot_printer_ip,
+            kot_printer_port=data.kot_printer_port,
+            kot_paper_width=data.kot_paper_width, kot_header_text=data.kot_header_text,
             session_ttl=data.session_ttl, premium_threshold=data.premium_threshold,
             cleanup_minutes=data.cleanup_minutes, festival_active=data.festival_active,
             festival_name=data.festival_name, festival_emoji=data.festival_emoji,
