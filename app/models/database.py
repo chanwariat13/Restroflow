@@ -4,15 +4,37 @@ Two layers:
   1. MASTER DB  — one PostgreSQL, stores all clients config
   2. TENANT DB  — each client has their own PostgreSQL (orders, customers, etc.)
 """
+import logging
+import os
+import sys
+
 from sqlalchemy import (
     create_engine, Column, Integer, String, Numeric,
     Boolean, Text, TIMESTAMP, func, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
-import os
+
+logger = logging.getLogger(__name__)
 
 # ── Master DB (one for all clients) ──────────────────────────────────────────
-MASTER_DB_URL = os.getenv("MASTER_DATABASE_URL", "postgresql://postgres:password@localhost:5432/restroflow_master")
+# We refuse to start with a placeholder URL. Previously the default
+# `postgresql://postgres:password@localhost:5432/restroflow_master` would
+# silently pick up if the env var was missing, which is dangerous: production
+# would either fail in confusing ways, or worse — actually connect to a
+# co-located dev instance and silently corrupt it.
+_DEFAULT_MASTER_DB_PLACEHOLDER = "postgresql://postgres:password@localhost:5432/restroflow_master"
+MASTER_DB_URL = (os.getenv("MASTER_DATABASE_URL") or "").strip()
+if not MASTER_DB_URL or MASTER_DB_URL == _DEFAULT_MASTER_DB_PLACEHOLDER:
+    logger.critical(
+        "MASTER_DATABASE_URL is not set (or still the well-known placeholder). "
+        "Refusing to start — set a real Postgres URL via the env var."
+    )
+    print(
+        "ERROR: MASTER_DATABASE_URL must be set to a real Postgres URL before "
+        "starting RestroFlow.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 master_engine = create_engine(MASTER_DB_URL, pool_pre_ping=True)
 MasterSession = sessionmaker(bind=master_engine, autocommit=False, autoflush=False)
@@ -170,20 +192,26 @@ def get_tenant_session(tenant_db_url: str, slug: str):
 class Order(TenantBase):
     __tablename__ = "orders"
     id             = Column(Integer, primary_key=True)
-    order_id       = Column(String)
+    # `order_id` is the primary deduplication key for Razorpay retries
+    # and concurrent webhook handlers. We index it for fast lookups but
+    # avoid `unique=True` here because the auto-migrator can't safely add a
+    # unique constraint to existing tenant DBs that may have legacy
+    # duplicates. Idempotency is enforced application-side in
+    # api_routes._process_razorpay using a Redis processed-event set.
+    order_id       = Column(String, index=True)
     date           = Column(String)
-    date_only      = Column(String)
+    date_only      = Column(String, index=True)
     customer_name  = Column(String)
-    phone          = Column(String)
-    table_name     = Column(String)
+    phone          = Column(String, index=True)
+    table_name     = Column(String, index=True)
     items          = Column(Text)
     subtotal       = Column(Numeric)
     tax            = Column(Numeric)
     total          = Column(Numeric)
     payment_method = Column(String)
-    status         = Column(String)
+    status         = Column(String, index=True)
     created_at     = Column(TIMESTAMP, default=func.now())
-    billed         = Column(Boolean, default=False)
+    billed         = Column(Boolean, default=False, index=True)
     customer_gstin = Column(String, default="")          # NEW: B2B GSTIN for tax invoice
     # NEW: India-compliance GST split (CGST + SGST for intra-state, IGST for inter-state)
     cgst_amount      = Column(Numeric, default=0)
@@ -201,7 +229,7 @@ class Customer(TenantBase):
     __tablename__ = "customers"
     id           = Column(Integer, primary_key=True)
     name         = Column(String)
-    phone        = Column(String)
+    phone        = Column(String, index=True)
     first_visit  = Column(String)
     last_visit   = Column(String)
     total_visits = Column(Integer, default=1)
@@ -248,7 +276,7 @@ class Feedback(TenantBase):
 class Inventory(TenantBase):
     __tablename__ = "inventory"
     id            = Column(Integer, primary_key=True)
-    item_name     = Column(String)
+    item_name     = Column(String, index=True)
     unit          = Column(String)
     current_stock = Column(Numeric)
     min_threshold = Column(Numeric)
@@ -259,8 +287,8 @@ class Inventory(TenantBase):
 class MenuIngredient(TenantBase):
     __tablename__ = "menu_ingredients"
     id            = Column(Integer, primary_key=True)
-    menu_item     = Column(String)
-    ingredient    = Column(String)
+    menu_item     = Column(String, index=True)
+    ingredient    = Column(String, index=True)
     quantity_used = Column(Numeric)
     unit          = Column(String)
 
@@ -269,7 +297,7 @@ class MenuItem(TenantBase):
     __tablename__ = "menu"
     id           = Column(Integer, primary_key=True)
     name         = Column(String, nullable=False)
-    category     = Column(String, default="Main Course")
+    category     = Column(String, default="Main Course", index=True)
     price        = Column(Numeric, nullable=False)
     available    = Column(String, default="Yes")
     type         = Column(String, default="veg")

@@ -32,6 +32,24 @@ IST = ZoneInfo("Asia/Kolkata")
 # single-process deployment.
 _INTERNAL_BASE_URL = os.getenv("INTERNAL_BASE_URL", "http://localhost:8000").rstrip("/")
 
+# Shared secret used to authenticate self-calls to the internal `generate-bill`,
+# `split-bill`, `deduct-inventory`, and `unbilled-orders` endpoints. When set,
+# api_routes._require_internal_auth rejects any call missing or mismatching
+# this header. We always send it from the bot — if the env var is unset on
+# the receiving side, the header is ignored (legacy mode).
+_INTERNAL_API_KEY = (os.getenv("INTERNAL_API_KEY") or "").strip()
+
+
+def _internal_headers() -> dict:
+    """Headers attached to every internal self-call. Empty dict if no key set."""
+    return {"X-Internal-Auth": _INTERNAL_API_KEY} if _INTERNAL_API_KEY else {}
+
+
+def _new_order_id() -> str:
+    """Cryptographically-random order id; see api_routes._new_order_id."""
+    ts = int(datetime.now().timestamp())
+    return f"ORD{ts}{_secrets.token_hex(5)}"
+
 
 def _tprefix(cfg: TenantConfig) -> str:
     """Per-tenant uppercase table prefix (e.g. "T", "A", "TBL"). Falls back
@@ -162,7 +180,8 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         async with httpx.AsyncClient(timeout=30) as client:
             await client.post(
                 f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/generate-bill",
-                json={"table": table, "phone": phone}
+                json={"table": table, "phone": phone},
+                headers=_internal_headers(),
             )
         await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
         return
@@ -187,7 +206,8 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
                     f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/split-bill",
                     json={"table": table, "mode": "equal",
                            "parts": parts, "shares": shares,
-                           "notify_owner": True}
+                           "notify_owner": True},
+                    headers=_internal_headers(),
                 )
             data = resp.json()
             if data.get("success"):
@@ -596,7 +616,8 @@ async def _cust_paid(cfg, phone, upper, session):
     if upper in ("5", "BILL"):
         async with httpx.AsyncClient(timeout=30) as client:
             await client.post(f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/generate-bill",
-                              json={"table": table, "phone": phone})
+                              json={"table": table, "phone": phone},
+                              headers=_internal_headers())
         await wa.send_text(cfg, phone, "📄 Bill sent!"); return
     if upper in ("7", "WAITER"):
         await wa.send_all_staff(cfg, f"🔔 *WAITER*\n🪑 {table} | 👤 {name}")
@@ -616,7 +637,7 @@ async def _initiate_payment(cfg: TenantConfig, phone: str, session: dict):
     sub, tax, total_before = _calc_totals(cfg, orders)
     total    = _apply_discount(cfg, total_before)
     discount = total_before - total
-    order_id = f"ORD{int(datetime.now().timestamp())}"
+    order_id = _new_order_id()
     table    = session.get("table", "")
     name     = session.get("name", "")
 
@@ -773,7 +794,7 @@ def _apply_discount(cfg: TenantConfig, total: float) -> float:
 
 async def _save_order(cfg, session, phone, orders, method, total, sub, tax):
     name     = session.get("name", "Unknown"); table = session.get("table", "")
-    order_id = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}"
+    order_id = session.get("orderId") or _new_order_id()
     now      = datetime.now(IST)
     items_str = ", ".join(f"{o['quantity']}x {o['name']} (₹{float(o['price'])*o['quantity']:.0f})" for o in orders)
     try:
@@ -797,6 +818,7 @@ async def _call_deduct_inventory(cfg, orders, phone, table):
             await client.post(f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/deduct-inventory",
                               json={"items": [{"name": o.get("menu_name") or o["name"],
                                                 "quantity": o["quantity"]} for o in orders],
-                                    "phone": phone, "table": table})
+                                    "phone": phone, "table": table},
+                              headers=_internal_headers())
     except Exception:
         pass

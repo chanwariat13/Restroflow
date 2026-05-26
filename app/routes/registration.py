@@ -41,19 +41,23 @@ async def register(req: RegisterRequest, slug: str = Path(...)):
         return JSONResponse({"success": False, "error": "Invalid table"})
 
     expected = cfg.table_secrets.get(table)
-    # Fall back to the same default secret used by the admin and client
-    # QR-code endpoints (see admin.py / client_dashboard.py /api/.../qr-codes).
-    # Without this fallback, every QR generated for a brand-new client would
-    # be silently rejected here until an operator manually wrote a value into
-    # `table_secrets` JSON for every table.
+    # SECURITY: We deliberately do NOT compute a "default" secret here.
+    # The previous fallback `f"{slug[:3].upper()}{2025+i}"` made every QR
+    # code on a freshly-onboarded tenant predictable: anyone who knew the
+    # slug (which is exposed in /r/{slug} and /menu/{slug} URLs) could
+    # bypass the QR check and self-register at any table. The QR-codes
+    # admin/owner endpoints have been updated to materialise real random
+    # secrets into `table_secrets` JSON when they're missing, so a real
+    # operator-issued QR will always have a populated secret here.
+    #
+    # If the table secret is somehow not configured, fail closed so a
+    # forged QR cannot succeed.
     if not expected:
-        try:
-            idx = int(re.sub(r"\D", "", table) or "0")
-        except ValueError:
-            idx = 0
-        if idx > 0:
-            expected = f"{slug[:3].upper()}{2025 + idx}"
-    if not expected or expected != req.secret.strip():
+        return JSONResponse({
+            "success": False,
+            "error": "Table not configured. Please ask staff to regenerate the QR codes.",
+        })
+    if expected != req.secret.strip():
         return JSONResponse({"success": False, "error": "Invalid QR code. Scan the correct table QR."})
 
     if rc.is_blocked(cfg.slug, phone):

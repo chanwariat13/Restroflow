@@ -10,13 +10,16 @@ All remaining API routes — all multi-tenant via {slug} in URL.
   GET  /webhook/{slug}/lookup-customer  → returning-guest auto-fill
 """
 import base64
+import hmac
 import json
 import logging
+import os
 import re
+import secrets as _secrets
 import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Request, BackgroundTasks, Path
+from fastapi import APIRouter, Request, BackgroundTasks, Path, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -32,6 +35,57 @@ from app.services import whatsapp as wa
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
+
+
+# ── Internal API key for routes that mutate state on behalf of the bot or
+# admin dashboards. Without this, the previously-open `generate-bill`,
+# `deduct-inventory`, `split-bill`, and `unbilled-orders` endpoints could be
+# hit by anyone who guessed a slug — letting attackers mark orders billed,
+# spam Gotenberg PDF generation, deduct arbitrary inventory, or send PDFs
+# to phone numbers of their choice (cost amplification + spam vector).
+#
+# The bot now sends `X-Internal-Auth: <INTERNAL_API_KEY>` on its self-calls
+# (see app/routes/whatsapp_bot.py); the dashboards mint a short-lived
+# in-process token instead of going through the HTTP layer at all.
+_INTERNAL_API_KEY = (os.getenv("INTERNAL_API_KEY") or "").strip()
+
+
+def _require_internal_auth(provided: Optional[str]) -> None:
+    """Constant-time check of the X-Internal-Auth header.
+
+    If INTERNAL_API_KEY is unset we keep the legacy behaviour (no header
+    required) — operators who haven't yet rotated to the hardened flow stay
+    working — but we log a warning every time it's used unauth'd so it shows
+    up in monitoring. As soon as the env var is set, the routes lock down.
+    """
+    expected = _INTERNAL_API_KEY
+    if not expected:
+        # Legacy mode — surface in logs so operators notice they should
+        # configure INTERNAL_API_KEY.
+        logger.warning(
+            "Internal endpoint called without INTERNAL_API_KEY configured. "
+            "Set the env var to enable authenticated internal calls."
+        )
+        return
+    provided = (provided or "").strip()
+    if not provided or not hmac.compare_digest(
+        provided.encode("utf-8"), expected.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Invalid internal auth")
+
+
+def _new_order_id() -> str:
+    """Cryptographically-random order id.
+
+    The previous `f"ORD{int(now.timestamp())}"` collided whenever two
+    requests landed in the same second — easy to trigger from concurrent
+    Razorpay webhook retries or two pods racing on a single payment.
+    `secrets.token_hex(5)` adds 40 bits of randomness on top of the
+    timestamp, making collisions astronomically unlikely without changing
+    the human-readable shape (still `ORD<digits><hex>`).
+    """
+    ts = int(datetime.now().timestamp())
+    return f"ORD{ts}{_secrets.token_hex(5)}"
 
 
 # ══════════════════════════════════════════════════════
@@ -151,14 +205,32 @@ async def lookup_customer(request: Request, slug: str = Path(...)):
     Given ?phone=91XXXX, return whether this guest has visited before.
     Used by the registration page to auto-fill the name field.
     Always returns {found: bool, name: str, visits: int} — never errors.
+
+    SECURITY: This endpoint is unauthenticated by design (it's called from
+    the registration page before the guest is registered). To prevent a
+    runaway scraper from enumerating the entire customer phone book of a
+    restaurant, we apply a simple per-IP rate limit.
     """
     cfg = load_tenant(slug)
     phone = str(request.query_params.get("phone", "")).strip()
-    if not phone or len(phone) < 10 or not phone.isdigit():
+    # Tighten the input: only accept 10–14 digit purely numeric phones so
+    # an attacker can't smuggle SQL or large payloads through this open
+    # endpoint. (Queries are already parameterised, but the validation
+    # keeps logs clean and turns trash into a fast 200 with `found:false`.)
+    if not phone or len(phone) < 10 or len(phone) > 14 or not phone.isdigit():
+        return JSONResponse({"found": False, "name": "", "visits": 0})
+
+    # Per-IP rate limit — 30 lookups/minute is plenty for a typical guest
+    # who mistypes their number a few times. A scraper hitting 600/minute
+    # gets 429s quickly.
+    client_ip = request.client.host if request.client else "unknown"
+    if not rc.rate_limit_check(f"lookup:{slug}:{client_ip}", limit=30, window_seconds=60):
         return JSONResponse(
-            {"found": False, "name": "", "visits": 0},
-            headers={"Access-Control-Allow-Origin": "*"},
+            {"found": False, "name": "", "visits": 0,
+             "error": "Too many requests, please slow down."},
+            status_code=429,
         )
+
     try:
         with cfg.db_session() as db:
             row = db.execute(text(
@@ -167,14 +239,10 @@ async def lookup_customer(request: Request, slug: str = Path(...)):
         if row:
             return JSONResponse(
                 {"found": True, "name": row.name or "", "visits": int(row.total_visits or 0)},
-                headers={"Access-Control-Allow-Origin": "*"},
             )
     except Exception as e:
         logger.warning(f"lookup_customer failed slug={slug} phone={phone}: {e}")
-    return JSONResponse(
-        {"found": False, "name": "", "visits": 0},
-        headers={"Access-Control-Allow-Origin": "*"},
-    )
+    return JSONResponse({"found": False, "name": "", "visits": 0})
 
 
 # ══════════════════════════════════════════════════════
@@ -367,7 +435,9 @@ class BillRequest(BaseModel):
 
 
 @router.post("/webhook/{slug}/generate-bill")
-async def generate_bill(req: BillRequest, slug: str = Path(...)):
+async def generate_bill(req: BillRequest, slug: str = Path(...),
+                        x_internal_auth: Optional[str] = Header(None)):
+    _require_internal_auth(x_internal_auth)
     cfg   = load_tenant(slug)
     table = req.table.strip().upper()
     today = fmt_date_short(datetime.now(IST))
@@ -537,11 +607,15 @@ class DeductRequest(BaseModel):
 
 
 @router.post("/webhook/{slug}/deduct-inventory")
-async def deduct_inventory(req: DeductRequest, slug: str = Path(...)):
+async def deduct_inventory(req: DeductRequest, slug: str = Path(...),
+                           x_internal_auth: Optional[str] = Header(None)):
     """
     Deducts inventory based on menu_ingredients × order quantity.
     SECURITY: Uses parameterized queries — item names are never interpolated into SQL.
+    Requires X-Internal-Auth header (when INTERNAL_API_KEY is configured) to
+    prevent unauthenticated stock manipulation by anyone who knows the slug.
     """
+    _require_internal_auth(x_internal_auth)
     cfg = load_tenant(slug)
     if not req.items:
         return JSONResponse({"success": False, "message": "No items"})
@@ -630,6 +704,20 @@ async def _process_razorpay(cfg: TenantConfig, body: dict):
     order_id = notes.get("order_id", "")
     table    = notes.get("table", "")
     if not phone:
+        return
+
+    # ── Idempotency guard ───────────────────────────────────────────────
+    # Razorpay retries `payment_link.paid` events on any non-2xx or timeout
+    # for up to 24h. Without this short-circuit, every retry inserted a
+    # duplicate `orders` row, appended `paidOrders` again, and re-deducted
+    # inventory. We claim a per-tenant, per-payment-id key in Redis with a
+    # 7-day TTL — first claimer proceeds, retries no-op.
+    payment_id = payment.get("id") or pay_link.get("id") or ""
+    if payment_id and not rc.claim_event(cfg.slug, "razorpay", payment_id):
+        logger.info(
+            "Razorpay event already processed; skipping. slug=%s payment_id=%s",
+            cfg.slug, payment_id,
+        )
         return
 
     amount = payment.get("amount", 0) / 100
@@ -831,7 +919,9 @@ td{{padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-ali
 
 
 @router.post("/webhook/{slug}/split-bill")
-async def split_bill(req: SplitBillRequest, slug: str = Path(...)):
+async def split_bill(req: SplitBillRequest, slug: str = Path(...),
+                     x_internal_auth: Optional[str] = Header(None)):
+    _require_internal_auth(x_internal_auth)
     cfg = load_tenant(slug)
     table = req.table.strip().upper()
     today = fmt_date_short(datetime.now(IST))
@@ -1033,9 +1123,11 @@ async def split_bill(req: SplitBillRequest, slug: str = Path(...)):
 # K3 — UNBILLED ORDERS PREVIEW (helper for split-bill UI)
 # ══════════════════════════════════════════════════════
 @router.get("/webhook/{slug}/unbilled-orders")
-async def unbilled_orders(slug: str = Path(...), table: str = ""):
+async def unbilled_orders(slug: str = Path(...), table: str = "",
+                          x_internal_auth: Optional[str] = Header(None)):
     """Return today's paid+unbilled orders for a table, parsed into addressable
     lines. The split-bill UI calls this to populate item allocations."""
+    _require_internal_auth(x_internal_auth)
     cfg = load_tenant(slug)
     table = (table or "").strip().upper()
     if not table:

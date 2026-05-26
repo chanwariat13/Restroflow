@@ -4,9 +4,10 @@ API endpoints for the client (restaurant owner) dashboard.
 Login with slug + dashboard_password → see only their own data.
 """
 import hmac
+import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -350,9 +351,16 @@ async def update_settings(slug: str, body: SettingsUpdate, x_client_password: st
 
 # ── QR Codes ───────────────────────────────────────────────────────────────
 @router.get("/api/client/{slug}/qr-codes")
-async def get_qr_codes(slug: str, x_client_password: str = Header(...)):
+async def get_qr_codes(slug: str, request: Request, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
-    base_url = f"https://restroflow.coolify.yeshikasingh.cloud"
+    import secrets as _sec
+    from app.utils.tenant import invalidate_cache
+    # Prefer an explicit PUBLIC_BASE_URL env var (set in deploys behind a
+    # proxy where request.base_url would point at the internal scheme/host)
+    # but fall back to the request's own base_url for portability — the
+    # previous hardcoded "https://restroflow.coolify.yeshikasingh.cloud"
+    # broke every other deployment.
+    base_url = (os.getenv("PUBLIC_BASE_URL") or str(request.base_url)).rstrip("/")
     try:
         secrets = json.loads(c.table_secrets or "{}")
     except Exception:
@@ -361,13 +369,33 @@ async def get_qr_codes(slug: str, x_client_password: str = Header(...)):
     # e.g. "A" sees "A1, A2…" QR codes — and the registration endpoint's
     # prefix-aware regex actually accepts them.
     prefix = (c.table_prefix or "T").upper()
+    # Materialise random secrets for any tables missing them (see the
+    # matching admin endpoint for the full rationale). Without this the
+    # registration endpoint — which now fails closed instead of computing
+    # a predictable default — would reject every QR code on a freshly-
+    # onboarded client.
+    added_any = False
     qr_codes = []
     for i in range(1, (c.table_count or 10) + 1):
         table = f"{prefix}{i}"
-        secret = secrets.get(table, f"{slug[:3].upper()}{2025+i}")
+        secret = secrets.get(table)
+        if not secret:
+            secret = _sec.token_urlsafe(16)
+            secrets[table] = secret
+            added_any = True
         reg_url = f"{base_url}/r/{slug}?table={table}&secret={secret}"
         qr_api  = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data={reg_url}"
         qr_codes.append({"table": table, "secret": secret, "reg_url": reg_url, "qr_image": qr_api})
+    if added_any:
+        db = MasterSession()
+        try:
+            client = db.query(Client).filter(Client.slug == slug).first()
+            if client:
+                client.table_secrets = json.dumps(secrets)
+                db.commit()
+                invalidate_cache(slug)
+        finally:
+            db.close()
     return JSONResponse(qr_codes)
 
 
