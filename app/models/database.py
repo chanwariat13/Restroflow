@@ -56,9 +56,19 @@ class Client(MasterBase):
     # Business rules
     gst_rate           = Column(Numeric, default=0.05)
     gstin              = Column(String, default="")    # NEW: GSTIN of the restaurant for B2B invoice
+    state_code         = Column(String, default="")    # NEW: 2-digit state code for CGST/SGST/IGST split
+    legal_name         = Column(String, default="")    # NEW: Legal entity name for tax invoice
+    pan                = Column(String, default="")    # NEW: PAN of business
     session_ttl        = Column(Integer, default=10800)
     premium_threshold  = Column(Integer, default=2)
     cleanup_minutes    = Column(Integer, default=30)
+
+    # KOT (Kitchen Order Ticket) thermal printer config — ESC/POS over TCP:9100
+    kot_enabled        = Column(Boolean, default=False)  # NEW: master toggle
+    kot_printer_ip     = Column(String,  default="")     # NEW: LAN IP of thermal printer
+    kot_printer_port   = Column(Integer, default=9100)   # NEW: raw print port
+    kot_paper_width    = Column(Integer, default=42)     # NEW: chars/line (42=80mm, 32=58mm)
+    kot_header_text    = Column(String,  default="")     # NEW: custom line under restaurant name
 
     # Festival
     festival_active    = Column(Boolean, default=False)
@@ -175,6 +185,16 @@ class Order(TenantBase):
     created_at     = Column(TIMESTAMP, default=func.now())
     billed         = Column(Boolean, default=False)
     customer_gstin = Column(String, default="")          # NEW: B2B GSTIN for tax invoice
+    # NEW: India-compliance GST split (CGST + SGST for intra-state, IGST for inter-state)
+    cgst_amount      = Column(Numeric, default=0)
+    sgst_amount      = Column(Numeric, default=0)
+    igst_amount      = Column(Numeric, default=0)
+    place_of_supply  = Column(String,  default="")  # 2-digit state code
+    is_inter_state   = Column(Boolean, default=False)
+    hsn_code         = Column(String,  default="996331")  # SAC for restaurant service
+    # NEW: KOT print tracking — persistent so a kitchen can reprint on demand
+    kot_printed_at   = Column(TIMESTAMP, nullable=True)
+    kot_print_count  = Column(Integer,   default=0)
 
 
 class Customer(TenantBase):

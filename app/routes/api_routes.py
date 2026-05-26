@@ -390,6 +390,28 @@ async def generate_bill(req: BillRequest, slug: str = Path(...)):
     tax_sum  = sum(float(o.get("tax",   0)) for o in orders)
     subtotal = grand - tax_sum
 
+    # ── India compliance: split tax into CGST/SGST (intra-state) or IGST (inter-state)
+    # We derive place-of-supply from the customer's GSTIN if present; otherwise
+    # default to the restaurant's own state (intra-state). HSN/SAC for restaurant
+    # service is 996331; can be overridden per-order if/when we wire it through.
+    from app.services.gst import (
+        compute_split, split_flat_tax, state_code_from_gstin, INDIAN_STATE_CODES,
+    )
+
+    seller_state = (cfg.state_code or "").strip()
+    customer_state = ""
+    customer_gstin = ""
+    for o in orders:
+        cg = (o.get("customer_gstin") or "").strip()
+        if cg:
+            customer_gstin = cg
+            customer_state = state_code_from_gstin(cg)
+            break
+    inter_state = bool(seller_state and customer_state and seller_state != customer_state)
+    cgst_sum, sgst_sum, igst_sum = split_flat_tax(
+        subtotal, tax_sum, seller_state, customer_state, inter_state=inter_state
+    )
+
     item_rows = ""
     for rnd, o in enumerate(orders, 1):
         items_text = str(o.get("items","")).replace("\n","<br>")
@@ -400,13 +422,7 @@ async def generate_bill(req: BillRequest, slug: str = Path(...)):
             f'<td style="text-align:right">&#8377;{float(o.get("total",0)):.2f}</td></tr>'
         )
 
-    # Customer GSTIN (B2B invoice) — pulled from any of today's orders for this table
-    customer_gstin = ""
-    for o in orders:
-        cg = (o.get("customer_gstin") or "").strip()
-        if cg:
-            customer_gstin = cg
-            break
+    # Customer GSTIN (B2B invoice) — already extracted above for the GST split.
 
     seller_gstin = (cfg.gstin or "").strip()
     invoice_kind = "TAX INVOICE" if seller_gstin else "Bill"
@@ -418,6 +434,33 @@ async def generate_bill(req: BillRequest, slug: str = Path(...)):
     customer_gstin_html = (
         f'<div style="font-size:11px;color:#666"><b>Customer GSTIN:</b> {customer_gstin}</div>'
         if customer_gstin else ""
+    )
+
+    # Tax-line block: CGST+SGST for intra-state, IGST for inter-state.
+    rate_pct = int(round(float(cfg.gst_rate) * 100))
+    if tax_sum <= 0:
+        tax_block = ""
+    elif inter_state:
+        tax_block = (
+            f'<tr><td>IGST ({rate_pct}%)</td>'
+            f'<td>&#8377;{igst_sum:.2f}</td></tr>'
+        )
+    else:
+        half_pct = rate_pct / 2
+        # Show .0 only when needed.
+        half_label = (f"{half_pct:.1f}".rstrip("0").rstrip("."))
+        tax_block = (
+            f'<tr><td>CGST ({half_label}%)</td>'
+            f'<td>&#8377;{cgst_sum:.2f}</td></tr>'
+            f'<tr><td>SGST ({half_label}%)</td>'
+            f'<td>&#8377;{sgst_sum:.2f}</td></tr>'
+        )
+
+    pos_label = INDIAN_STATE_CODES.get(customer_state or seller_state, "") if (customer_state or seller_state) else ""
+    pos_html = (
+        f'<div style="font-size:11px;color:#666"><b>Place of Supply:</b> '
+        f'{pos_label} ({customer_state or seller_state})</div>'
+        if pos_label else ""
     )
 
     now_ist = datetime.now(IST).strftime("%d %b %Y, %I:%M %p")
@@ -445,7 +488,7 @@ td{{padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-ali
 <div class="hdr"><h1>{cfg.restaurant_name}</h1>{seller_gstin_html}<p>Thank you for dining with us!</p>
 <div class="kind">{invoice_kind}</div></div>
 <div class="info">
-  <div><b>Table:</b> {table} &nbsp; <b>Customer:</b> {customer}{customer_gstin_html}</div>
+  <div><b>Table:</b> {table} &nbsp; <b>Customer:</b> {customer}{customer_gstin_html}{pos_html}</div>
   <div style="font-size:11px;color:#aaa"><b>Date:</b> {now_ist}</div>
 </div>
 <table>
@@ -454,7 +497,7 @@ td{{padding:7px 10px;border-bottom:1px solid #f0f0f0;font-size:13px;vertical-ali
 </table>
 <div class="totals"><table>
   <tr><td>Subtotal</td><td>&#8377;{subtotal:.2f}</td></tr>
-  <tr><td>Tax (GST {int(cfg.gst_rate*100)}%)</td><td>&#8377;{tax_sum:.2f}</td></tr>
+  {tax_block}
   <tr class="grand"><td>Grand Total</td><td>&#8377;{grand:.2f}</td></tr>
 </table></div>
 <div class="ftr">{cfg.restaurant_name} | Visit us again! &#128522;</div>

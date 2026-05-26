@@ -304,3 +304,125 @@ async def staff_pending(slug: str, phone: str, pin: str):
             pending.append({"table": t["table"], "phone": t["phone"],
                            "name": s.get("name","?"), "status": "AWAITING_APPROVAL"})
     return JSONResponse(pending)
+
+
+
+# ══════════════════════════════════════════════════════════════════
+# KOT (Kitchen Order Ticket) printer — ESC/POS over TCP:9100
+# ══════════════════════════════════════════════════════════════════
+class KotPrintReq(BaseModel):
+    slug:     str
+    phone:    str
+    pin:      str
+    order_id: str
+    reprint:  bool = False
+    notes:    Optional[str] = ""
+
+
+@router.post("/api/staff/{slug}/kot/print")
+async def staff_kot_print(slug: str, req: KotPrintReq):
+    """
+    Print a Kitchen Order Ticket for an existing order to the configured
+    thermal printer. Returns 200 even when the printer is unreachable —
+    the response body's `ok` flag tells the dashboard whether it actually
+    printed (so the kitchen can choose to retry or fall back to the
+    legacy WhatsApp notification).
+
+    Auth:  any staff role with `kitchen`, `tables`, `orders`, or `staff`
+           permission may print a KOT (i.e. anyone but pure-customer).
+    """
+    if req.slug != slug:
+        raise HTTPException(400, "slug mismatch")
+    member = _auth_staff(slug, req.phone, req.pin)
+    perms = ROLE_PERMS.get(member.role, [])
+    if not any(p in perms for p in ("kitchen", "orders", "tables", "staff")):
+        raise HTTPException(403, f"Role {member.role} cannot print KOTs")
+
+    cfg = load_tenant(slug)
+    if not cfg.kot_enabled:
+        raise HTTPException(409, "KOT printing is disabled for this restaurant. "
+                                  "Enable it and set kot_printer_ip in settings.")
+    if not cfg.kot_printer_ip:
+        raise HTTPException(409, "kot_printer_ip is not configured")
+
+    # Fetch order from tenant DB
+    with cfg.db_session() as db:
+        row = db.execute(text(
+            "SELECT order_id, customer_name, table_name, items, kot_print_count "
+            "FROM orders WHERE order_id=:oid LIMIT 1"
+        ), {"oid": req.order_id}).fetchone()
+
+    if not row:
+        raise HTTPException(404, f"Order {req.order_id} not found")
+
+    rec = dict(row._mapping)
+
+    # Lazy import to avoid forcing socket import when this route is unused.
+    from app.services.kot_printer import print_kot, parse_items_from_string
+
+    items = parse_items_from_string(rec.get("items", ""))
+    if not items:
+        raise HTTPException(400, "Order has no items to print")
+
+    result = print_kot(
+        restaurant_name = cfg.restaurant_name,
+        order_id        = rec["order_id"],
+        table           = rec.get("table_name") or "",
+        items           = items,
+        customer_name   = rec.get("customer_name") or "",
+        printer_ip      = cfg.kot_printer_ip,
+        printer_port    = cfg.kot_printer_port,
+        notes           = req.notes or "",
+        is_reprint      = bool(req.reprint),
+        header_text     = cfg.kot_header_text,
+        cpl             = cfg.kot_paper_width,
+    )
+
+    # Update kot_printed_at + counter on success.
+    if result.get("ok"):
+        try:
+            with cfg.db_session() as db:
+                db.execute(text(
+                    "UPDATE orders SET kot_printed_at=NOW(), kot_print_count=COALESCE(kot_print_count,0)+1 "
+                    "WHERE order_id=:oid"
+                ), {"oid": req.order_id})
+                db.commit()
+        except Exception as e:
+            # Don't fail the print response over a counter-update glitch.
+            result["counter_update_error"] = str(e)
+
+    return JSONResponse({
+        "ok":             bool(result.get("ok")),
+        "order_id":       req.order_id,
+        "printer_ip":     cfg.kot_printer_ip,
+        "printer_port":   cfg.kot_printer_port,
+        "bytes_sent":     result.get("bytes_sent", 0),
+        "error":          result.get("error", ""),
+        "previous_count": int(rec.get("kot_print_count") or 0),
+        "is_reprint":     bool(req.reprint) or int(rec.get("kot_print_count") or 0) > 0,
+    })
+
+
+@router.get("/api/staff/{slug}/kot/test")
+async def staff_kot_test(slug: str, phone: str, pin: str):
+    """Dry-run: print a small test page to the configured printer. Useful for
+    setup. Authenticated as any staff role above kitchen."""
+    member = _auth_staff(slug, phone, pin)
+    cfg = load_tenant(slug)
+    if not cfg.kot_printer_ip:
+        return JSONResponse({"ok": False, "error": "kot_printer_ip is not configured"})
+
+    from app.services.kot_printer import print_kot
+    result = print_kot(
+        restaurant_name = cfg.restaurant_name,
+        order_id        = "TEST-PRINT",
+        table           = "—",
+        items           = [{"name": "RestroFlow KOT test print", "quantity": 1}],
+        customer_name   = member.name,
+        printer_ip      = cfg.kot_printer_ip,
+        printer_port    = cfg.kot_printer_port,
+        notes           = "If you see this, the kitchen printer is wired up correctly.",
+        header_text     = cfg.kot_header_text,
+        cpl             = cfg.kot_paper_width,
+    )
+    return JSONResponse({"ok": bool(result.get("ok")), **result})

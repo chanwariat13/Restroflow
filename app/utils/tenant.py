@@ -56,6 +56,15 @@ class TenantConfig:
     banner_image:       str
     # Compliance
     gstin:              str = ""
+    state_code:         str = ""
+    legal_name:         str = ""
+    pan:                str = ""
+    # KOT (kitchen printer) — optional, only used when kot_enabled=True
+    kot_enabled:        bool = False
+    kot_printer_ip:     str = ""
+    kot_printer_port:   int = 9100
+    kot_paper_width:    int = 42
+    kot_header_text:    str = ""
 
     def is_festival_today(self) -> bool:
         if not self.festival_active:
@@ -148,6 +157,14 @@ def load_tenant(slug: str) -> TenantConfig:
         welcome_message    = client.welcome_message or "Welcome! Scan & Order",
         banner_image       = client.banner_image or "",
         gstin              = (getattr(client, "gstin", "") or ""),
+        state_code         = (getattr(client, "state_code", "") or ""),
+        legal_name         = (getattr(client, "legal_name", "") or ""),
+        pan                = (getattr(client, "pan", "") or ""),
+        kot_enabled        = bool(getattr(client, "kot_enabled", False)),
+        kot_printer_ip     = (getattr(client, "kot_printer_ip", "") or ""),
+        kot_printer_port   = int(getattr(client, "kot_printer_port", 9100) or 9100),
+        kot_paper_width    = int(getattr(client, "kot_paper_width", 42) or 42),
+        kot_header_text    = (getattr(client, "kot_header_text", "") or ""),
     )
 
     _cache[slug] = cfg
