@@ -356,7 +356,27 @@ async def import_menu(slug: str, request: Request, x_admin_secret: str = Header(
     from app.utils.tenant import load_tenant
     from sqlalchemy import text
 
-    body = await request.body()
+    # Hard cap on the request body. The previous version did `await
+    # request.body()` with no upper bound, so any actor with a valid
+    # admin secret (or a stolen one) could OOM the worker by sending a
+    # multi-GB CSV. 5 MB comfortably covers menus with thousands of rows.
+    MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
+
+    # Reject early when the client advertises a too-large body.
+    cl = request.headers.get("content-length")
+    if cl and cl.isdigit() and int(cl) > MAX_CSV_BYTES:
+        raise HTTPException(status_code=413, detail="CSV too large (max 5 MB)")
+
+    # Stream-read with an upper bound so a missing / lying Content-Length
+    # header still can't grow memory unbounded.
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_CSV_BYTES:
+            raise HTTPException(status_code=413, detail="CSV too large (max 5 MB)")
+        chunks.append(chunk)
+    body = b"".join(chunks)
     content = body.decode("utf-8-sig")  # handle BOM
 
     reader = csv.DictReader(io.StringIO(content))
@@ -994,19 +1014,22 @@ class AdminPhoneAction(BaseModel):
     cust_phone: str
 
 @router.post("/admin/clients/{slug}/approve")
-async def admin_approve(slug: str, body: AdminPhoneAction, x_admin_secret: str = Header(...)):
+async def admin_approve(slug: str, body: AdminPhoneAction, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     import secrets as _sec
     from datetime import datetime
     from app.services import whatsapp as wa
     from app.utils import redis_client as rc
+    from app.utils.urls import get_public_base_url
     cfg = load_tenant(slug)
     session = rc.get_session(slug, body.cust_phone)
     if not session or session.get("status") != "AWAITING_APPROVAL":
         return JSONResponse({"success": False, "error": "No pending request"})
     token    = _sec.token_hex(8)
-    menu_url = (f"{cfg.menu_url or 'https://restroflow.coolify.yeshikasingh.cloud'}"
-                f"/menu/{slug}?t={session['table']}&p={body.cust_phone}"
+    # Prefer the per-tenant menu_url, then PUBLIC_BASE_URL env, then the live
+    # request's base URL. Never embed a foreign deployment's hostname.
+    base_url = (cfg.menu_url or get_public_base_url(request)).rstrip("/")
+    menu_url = (f"{base_url}/menu/{slug}?t={session['table']}&p={body.cust_phone}"
                 f"&n={session['name'].split()[0]}&k={token}")
     session.update({
         "status":     "ORDERING",

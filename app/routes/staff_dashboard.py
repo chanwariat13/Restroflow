@@ -7,7 +7,7 @@ Everything changeable without redeploy.
 """
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -178,17 +178,21 @@ class ApproveReq(BaseModel):
     slug: str; phone: str; pin: str; cust_phone: str
 
 @router.post("/api/staff/approve")
-async def staff_approve(req: ApproveReq):
+async def staff_approve(req: ApproveReq, request: Request):
     m = _auth_staff(req.slug, req.phone, req.pin)
     _check_perm(m, "tables")
     import secrets as _sec
     from app.services import whatsapp as wa
+    from app.utils.urls import get_public_base_url
     cfg = load_tenant(req.slug)
     session = rc.get_session(req.slug, req.cust_phone)
     if not session or session.get("status") != "AWAITING_APPROVAL":
         return JSONResponse({"success": False, "error": "No pending request"})
     token    = _sec.token_hex(8)
-    menu_url = f"{cfg.menu_url or 'https://restroflow.coolify.yeshikasingh.cloud'}/menu/{req.slug}?t={session['table']}&p={req.cust_phone}&n={session['name'].split()[0]}&k={token}"
+    # Prefer the per-tenant menu_url, then PUBLIC_BASE_URL env, then this
+    # request's base URL. Avoid hardcoding a deployment's hostname.
+    base_url = (cfg.menu_url or get_public_base_url(request)).rstrip("/")
+    menu_url = f"{base_url}/menu/{req.slug}?t={session['table']}&p={req.cust_phone}&n={session['name'].split()[0]}&k={token}"
     session.update({"status":"ORDERING","approvedAt":datetime.utcnow().isoformat(),"menuToken":token,"menuURL":menu_url})
     rc.save_session(req.slug, req.cust_phone, session, cfg.session_ttl)
     rc.set_table(req.slug, session["table"], req.cust_phone, pending=False, ttl=cfg.session_ttl)

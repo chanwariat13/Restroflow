@@ -6,3 +6,8 @@ sqlalchemy==2.0.30
 httpx==0.27.0
 apscheduler==3.10.4
 pydantic==2.7.1
+# tzdata pin: ZoneInfo("Asia/Kolkata") is used throughout the codebase.
+# python:3.11-slim's Debian base ships the tzdata apt package today, but
+# pinning the PyPI distribution keeps the app working on minimal bases
+# (e.g. alpine, distroless) where the OS-level zoneinfo is missing.
+tzdata>=2024.1

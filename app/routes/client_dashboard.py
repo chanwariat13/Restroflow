@@ -5,7 +5,7 @@ Login with slug + dashboard_password → see only their own data.
 """
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -306,9 +306,14 @@ async def update_settings(slug: str, body: SettingsUpdate, x_client_password: st
 
 # ── QR Codes ───────────────────────────────────────────────────────────────
 @router.get("/api/client/{slug}/qr-codes")
-async def get_qr_codes(slug: str, x_client_password: str = Header(...)):
+async def get_qr_codes(slug: str, request: Request, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
-    base_url = f"https://restroflow.coolify.yeshikasingh.cloud"
+    from app.utils.urls import get_public_base_url
+    # Prefer the configured PUBLIC_BASE_URL env var, then fall back to the
+    # current request's base URL. Hardcoding a hostname here meant every QR
+    # code printed by the client dashboard pointed at the wrong domain when
+    # the deployment moved.
+    base_url = get_public_base_url(request)
     try:
         secrets = json.loads(c.table_secrets or "{}")
     except Exception:

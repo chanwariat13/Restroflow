@@ -3,13 +3,69 @@ routes/customer_pages.py
 Customer-facing pages — fully branded per client.
   GET /r/{slug}?table=T1&secret=ABC   → Registration page
   GET /menu/{slug}?t=T1&p=91xx&k=tok → Menu page
+
+Security note
+-------------
+Branding fields (restaurant_name, welcome_message, primary_color, logo_url,
+banner_image) come from the master DB and are settable by per-tenant
+admins. RestroFlow is multi-tenant: a malicious or compromised tenant
+operator must not be able to inject script into another customer's
+browser. Every value is therefore sanitised through one of the helpers
+below before being interpolated into the customer-facing HTML/CSS/JS.
 """
+import html
+import json
 import os
+import re
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from app.models.database import MasterSession, Client
 
 router = APIRouter()
+
+
+# ── Branding sanitisation helpers ───────────────────────────────────────────
+# Hex colours: 3, 4, 6 or 8 hex digits (covers #rgb, #rgba, #rrggbb, #rrggbbaa).
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{3,8}$")
+
+
+def _safe_color(value: str, default: str = "#ff6b35") -> str:
+    """Return a CSS-safe hex colour, or the default when the input doesn't match.
+
+    The previous code interpolated `primary_color` directly into CSS, which
+    let an admin-controlled value escape the rule (`red;}body{display:none`)
+    or even break out of `<style>` (`</style><script>…`). Validating against
+    a strict hex pattern eliminates both vectors.
+    """
+    v = (value or "").strip()
+    return v if _HEX_COLOR_RE.match(v) else default
+
+
+def _safe_url(value: str) -> str:
+    """Return an attribute-safe URL, or '' for unsafe / non-URL inputs.
+
+    Allows http(s):// URLs and absolute/relative paths. Disallows
+    `javascript:`, `data:`, `file:` etc., which are XSS vectors when
+    interpolated into `<img src>`.
+    """
+    v = (value or "").strip()
+    if not v:
+        return ""
+    lower = v.lower()
+    if lower.startswith(("http://", "https://")) or v.startswith(("/", "./")):
+        return html.escape(v, quote=True)
+    return ""
+
+
+def _h(value: str) -> str:
+    """HTML-escape (including quotes) — safe for both text nodes and attributes."""
+    return html.escape(value or "", quote=True)
+
+
+def _jsstr(value: str) -> str:
+    """Encode `value` as a complete JS string literal (with quotes) — safe to
+    drop into a <script> block without further escaping."""
+    return json.dumps(value or "")
 
 
 def _get_client(slug: str) -> Client | None:
@@ -27,14 +83,29 @@ def _css_vars(color: str) -> str:
 @router.get("/r/{slug}", response_class=HTMLResponse)
 async def registration_page(slug: str):
     c = _get_client(slug)
-    name     = c.restaurant_name if c else "Restaurant"
-    color    = (c.primary_color if c else "#ff6b35") or "#ff6b35"
-    logo     = (c.logo_url if c else "") or ""
-    welcome  = (c.welcome_message if c else "Welcome! Scan & Order") or "Welcome! Scan & Order"
-    banner   = (c.banner_image if c else "") or ""
+    # Sanitise every tenant-controlled field before interpolation.
+    name_raw    = c.restaurant_name if c else "Restaurant"
+    color       = _safe_color(c.primary_color if c else "#ff6b35", "#ff6b35")
+    logo_url    = _safe_url(c.logo_url if c else "")
+    welcome_raw = (c.welcome_message if c else "Welcome! Scan & Order") or "Welcome! Scan & Order"
+    banner_url  = _safe_url(c.banner_image if c else "")
 
-    logo_html = f'<img src="{logo}" alt="{name}" style="height:60px;object-fit:contain;margin-bottom:8px;border-radius:10px">' if logo else f'<div style="font-family:Syne,sans-serif;font-size:28px;font-weight:800;color:{color}">{name}</div>'
-    banner_html = f'<img src="{banner}" alt="banner" style="width:100%;height:140px;object-fit:cover;border-radius:16px 16px 0 0">' if banner else ""
+    name      = _h(name_raw)
+    welcome   = _h(welcome_raw)
+    slug_js   = _jsstr(slug)
+
+    logo_html = (
+        f'<img src="{logo_url}" alt="{name}" '
+        f'style="height:60px;object-fit:contain;margin-bottom:8px;border-radius:10px">'
+        if logo_url
+        else f'<div style="font-family:Syne,sans-serif;font-size:28px;font-weight:800;color:{color}">{name}</div>'
+    )
+    banner_html = (
+        f'<img src="{banner_url}" alt="banner" '
+        f'style="width:100%;height:140px;object-fit:cover;border-radius:16px 16px 0 0">'
+        if banner_url
+        else ""
+    )
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="en">
@@ -98,7 +169,7 @@ async def registration_page(slug: str):
   </div>
 </div>
 <script>
-  const BASE=window.location.origin, SLUG='{slug}';
+  const BASE=window.location.origin, SLUG={slug_js};
   const params=new URLSearchParams(window.location.search);
   const table=params.get('table')||'', secret=params.get('secret')||'';
   if(table){{
@@ -166,20 +237,35 @@ async def registration_page(slug: str):
 @router.get("/menu/{slug}", response_class=HTMLResponse)
 async def menu_page(slug: str):
     c = _get_client(slug)
-    name    = c.restaurant_name if c else "Restaurant"
-    color   = (c.primary_color if c else "#ff6b35") or "#ff6b35"
-    logo    = (c.logo_url if c else "") or ""
-    welcome = (c.welcome_message if c else "") or ""
+    name_raw    = c.restaurant_name if c else "Restaurant"
+    color       = _safe_color(c.primary_color if c else "#ff6b35", "#ff6b35")
+    logo_url    = _safe_url(c.logo_url if c else "")
+    welcome_raw = (c.welcome_message if c else "") or ""
 
-    logo_html = f'<img src="{logo}" alt="{name}" style="height:40px;object-fit:contain;border-radius:8px">' if logo else f'<span style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:{color}">{name}</span>'
+    name    = _h(name_raw)
+    welcome = _h(welcome_raw)
+    slug_h  = _h(slug)
 
-    # Read the menu HTML template and inject branding
+    # When no logo is configured, render an empty slot — the .restro-name
+    # element next to the slot already shows the restaurant name, so we
+    # would otherwise display the name twice. The .header-brand wrapper
+    # in menu.html collapses gracefully when the slot is empty.
+    logo_html = (
+        f'<img src="{logo_url}" alt="{name}" '
+        f'style="height:40px;object-fit:contain;border-radius:8px">'
+        if logo_url else ""
+    )
+
+    # Read the menu HTML template and inject branding. Note that we replace
+    # the literal "#ff6b35" hex-string used as the default in the template
+    # with the validated tenant colour. That replacement is only safe
+    # because `color` has been run through _safe_color() above.
     path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "menu.html")
     try:
         with open(path) as f:
             content = f.read()
         content = (content
-            .replace("__SLUG__", slug)
+            .replace("__SLUG__", slug_h)
             .replace("__RESTRO_NAME__", name)
             .replace("__COLOR__", color)
             .replace("__LOGO_HTML__", logo_html)
