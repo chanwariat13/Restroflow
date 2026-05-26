@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from app.models.database import MasterSession, Client, StaffMember
 from app.utils.tenant import load_tenant
+from app.utils.security import verify_pin, hash_pin, needs_rehash
 from app.utils import redis_client as rc
 
 router = APIRouter()
@@ -51,20 +52,31 @@ def _auth_kitchen(slug: str, phone: str, pin: str) -> StaffMember:
     Same shape as staff_dashboard._auth_staff but accepts owner /
     manager / kitchen roles. Owners often run the KDS during dinner
     service when the kitchen lead is busy.
+
+    PIN verification is application-side via `verify_pin` which also
+    handles transparent rehash of legacy plaintext rows — see the
+    matching note in `staff_dashboard._auth_staff`.
     """
+    import logging
+    _log = logging.getLogger(__name__)
     db = MasterSession()
     try:
         m = db.query(StaffMember).filter(
             StaffMember.slug == slug,
             StaffMember.phone == phone,
-            StaffMember.pin == pin,
             StaffMember.active == True,
         ).first()
-        if not m:
+        if not m or not verify_pin(pin, m.pin or ""):
             raise HTTPException(status_code=401, detail="Wrong phone or PIN")
         if m.role not in ("kitchen", "owner", "manager"):
             raise HTTPException(status_code=403,
                                 detail=f"Role {m.role} cannot operate KDS")
+        if needs_rehash(m.pin or ""):
+            try:
+                m.pin = hash_pin(pin); db.commit()
+            except Exception as e:
+                _log.warning("KDS PIN rehash failed slug=%s phone=%s: %s", slug, phone, e)
+                db.rollback()
         return m
     finally:
         db.close()
