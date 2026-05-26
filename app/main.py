@@ -77,6 +77,15 @@ async def admin_page_alt():
     return FileResponse(os.path.join(STATIC_DIR, "admin-dashboard.html"))
 
 
+# Unified login. Both Super Admin and Restaurant users land here; the page
+# validates credentials against the existing endpoints, stashes them in
+# sessionStorage, and redirects to /admin-dashboard, /dashboard/{slug} or
+# /staff/{slug} depending on the role.
+@app.get("/login")
+async def login_page():
+    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+
+
 @app.exception_handler(Exception)
 async def global_error_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
