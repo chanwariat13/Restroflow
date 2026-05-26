@@ -5,13 +5,15 @@ POST /webhook/{slug}/whatsapp  ← Evolution API calls this per client
 slug in the URL identifies which client/restaurant this message belongs to.
 All logic is identical to single-tenant version but uses TenantConfig + slug-prefixed Redis.
 """
+import hmac
+import logging
 import os
 import re
 import httpx
 import secrets as _secrets
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Request, BackgroundTasks, Path
+from fastapi import APIRouter, Request, BackgroundTasks, Path, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
@@ -22,6 +24,7 @@ from app.services import whatsapp as wa
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
+logger = logging.getLogger(__name__)
 
 # Internal HTTP self-calls (BILL, SPLIT, deduct-inventory) reach back into our
 # own FastAPI process. The previous hardcoded "http://localhost:8000" broke
@@ -43,6 +46,49 @@ _INTERNAL_API_KEY = (os.getenv("INTERNAL_API_KEY") or "").strip()
 def _internal_headers() -> dict:
     """Headers attached to every internal self-call. Empty dict if no key set."""
     return {"X-Internal-Auth": _INTERNAL_API_KEY} if _INTERNAL_API_KEY else {}
+
+
+# ── Inbound WhatsApp webhook authentication (opt-in) ────────────────────────
+# Evolution API can be configured to send an `apikey` header on every webhook
+# delivery. When `WHATSAPP_WEBHOOK_TOKEN` is set in our env, we require the
+# inbound header to match it (constant-time compare) and reject anything
+# else with 401 — closing the impersonation hole where a third party could
+# POST a forged "messages.upsert" payload to /webhook/{slug}/whatsapp and
+# get treated as a staff WhatsApp number. The header name is configurable
+# (default `apikey`) so operators on a custom Evolution build can swap it.
+#
+# When the env var is unset, we log once per request and allow the call —
+# matching the transitional pattern used everywhere else in this codebase
+# so existing deployments don't break the moment they pull this version.
+_WHATSAPP_WEBHOOK_TOKEN = (os.getenv("WHATSAPP_WEBHOOK_TOKEN") or "").strip()
+_WHATSAPP_WEBHOOK_HEADER = (
+    os.getenv("WHATSAPP_WEBHOOK_HEADER") or "apikey"
+).strip().lower() or "apikey"
+
+
+def _verify_whatsapp_webhook(request: Request) -> bool:
+    """Return True if the inbound webhook is authorized.
+
+    * If `WHATSAPP_WEBHOOK_TOKEN` is unset → log a warning, return True
+      (legacy mode; operators get a clear log line nudging them to opt in).
+    * If set → compare the configured header to the env value via
+      `hmac.compare_digest`. Missing / mismatched → False.
+    """
+    if not _WHATSAPP_WEBHOOK_TOKEN:
+        logger.warning(
+            "WhatsApp webhook hit without WHATSAPP_WEBHOOK_TOKEN configured. "
+            "Set it (and configure Evolution to send the matching `%s` header) "
+            "to lock the endpoint down.",
+            _WHATSAPP_WEBHOOK_HEADER,
+        )
+        return True
+    provided = (request.headers.get(_WHATSAPP_WEBHOOK_HEADER) or "").strip()
+    if not provided:
+        return False
+    return hmac.compare_digest(
+        provided.encode("utf-8"),
+        _WHATSAPP_WEBHOOK_TOKEN.encode("utf-8"),
+    )
 
 
 def _new_order_id() -> str:
@@ -68,6 +114,12 @@ async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     slug: str = Path(...)
 ):
+    # Authenticate before reading the body. An attacker who knows a slug but
+    # not the webhook token cannot get past this gate to influence Redis
+    # session state or trigger outbound WhatsApp sends.
+    if not _verify_whatsapp_webhook(request):
+        logger.warning("WhatsApp webhook rejected: bad/missing token slug=%s", slug)
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     body = await request.json()
     cfg  = load_tenant(slug)
     background_tasks.add_task(_handle_message, cfg, body)

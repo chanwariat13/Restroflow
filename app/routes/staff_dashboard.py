@@ -5,6 +5,7 @@ Roles: owner | manager | kitchen | waiter
 PIN set by super admin, changeable from owner dashboard.
 Everything changeable without redeploy.
 """
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException
@@ -16,11 +17,13 @@ import os
 
 from app.models.database import MasterSession, Client, StaffMember
 from app.utils.tenant import load_tenant
+from app.utils.security import verify_pin, hash_pin, needs_rehash
 from app.utils import redis_client as rc
 from app.utils.dates import fmt_date_short
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
+logger = logging.getLogger(__name__)
 
 # Role permissions
 ROLE_PERMS = {
@@ -32,16 +35,43 @@ ROLE_PERMS = {
 
 
 def _auth_staff(slug: str, phone: str, pin: str) -> StaffMember:
+    """Authenticate a staff member by (slug, phone, pin).
+
+    The submitted PIN is verified against the stored hash via
+    `app.utils.security.verify_pin`, which also accepts legacy plaintext
+    rows. On a legacy plaintext hit we transparently rehash and persist
+    so the row is on the modern PBKDF2 encoding by the next login.
+
+    The previous implementation filtered `StaffMember.pin == pin` directly
+    in the query, which (a) leaked PIN prefixes via DB-side string
+    comparison timing and (b) made it impossible to migrate to hashed
+    storage. Always look the row up by phone + slug + active first; PIN
+    verification is application-side.
+    """
     db = MasterSession()
     try:
         member = db.query(StaffMember).filter(
             StaffMember.slug == slug,
             StaffMember.phone == phone,
-            StaffMember.pin == pin,
-            StaffMember.active == True
+            StaffMember.active == True,
         ).first()
-        if not member:
+        if not member or not verify_pin(pin, member.pin or ""):
+            # Same generic error for "no such staff" and "wrong PIN" so we
+            # don't leak which one tripped.
             raise HTTPException(status_code=401, detail="Wrong phone or PIN")
+        # Transparent upgrade: rehash legacy plaintext PINs (and any old
+        # PBKDF2 rows below the current iteration baseline) on first login.
+        # Wrapped in try/except so a write hiccup never blocks a valid login.
+        if needs_rehash(member.pin or ""):
+            try:
+                member.pin = hash_pin(pin)
+                db.commit()
+            except Exception as e:
+                logger.warning(
+                    "staff PIN rehash failed for slug=%s phone=%s: %s",
+                    slug, phone, e,
+                )
+                db.rollback()
         return member
     finally:
         db.close()

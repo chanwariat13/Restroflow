@@ -308,9 +308,16 @@ async def list_staff(slug: str, x_admin_secret: str = Header(...)):
 async def add_staff(slug: str, data: StaffCreate, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from app.models.database import StaffMember
+    from app.utils.security import hash_pin
     db = MasterSession()
     try:
-        member = StaffMember(slug=slug, phone=data.phone, name=data.name, role=data.role, pin=data.pin, active=True)
+        # Hash before storing — see app/utils/security.hash_pin. The DB only
+        # ever sees the PBKDF2-encoded value; the plaintext PIN never lands
+        # in a row, audit log payload, or backup.
+        member = StaffMember(
+            slug=slug, phone=data.phone, name=data.name,
+            role=data.role, pin=hash_pin(data.pin), active=True,
+        )
         db.add(member); db.commit()
         audit("staff.create", actor="admin", actor_role="superadmin",
               slug=slug, target=str(member.id),
@@ -324,15 +331,24 @@ async def add_staff(slug: str, data: StaffCreate, request: Request, x_admin_secr
 async def update_staff(slug: str, staff_id: int, data: StaffCreate, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
     from app.models.database import StaffMember
+    from app.utils.security import hash_pin
     db = MasterSession()
     try:
         m = db.query(StaffMember).filter(StaffMember.id == staff_id, StaffMember.slug == slug).first()
         if not m: raise HTTPException(status_code=404)
-        m.phone = data.phone; m.name = data.name; m.role = data.role; m.pin = data.pin
+        m.phone = data.phone; m.name = data.name; m.role = data.role
+        # Only rotate the PIN when the admin actually supplied a new one;
+        # hashing an empty string would lock the account out. The model
+        # marks `pin` NOT NULL so we still need *something* — keep the
+        # existing hash in that case.
+        if (data.pin or "").strip():
+            m.pin = hash_pin(data.pin)
         db.commit()
         audit("staff.update", actor="admin", actor_role="superadmin",
               slug=slug, target=str(staff_id),
-              payload={"name": data.name, "role": data.role}, request=request)
+              payload={"name": data.name, "role": data.role,
+                       "pin_rotated": bool((data.pin or "").strip())},
+              request=request)
         return JSONResponse({"success": True, "message": "Staff updated"})
     finally:
         db.close()

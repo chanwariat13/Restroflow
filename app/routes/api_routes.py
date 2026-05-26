@@ -53,20 +53,28 @@ _INTERNAL_API_KEY = (os.getenv("INTERNAL_API_KEY") or "").strip()
 def _require_internal_auth(provided: Optional[str]) -> None:
     """Constant-time check of the X-Internal-Auth header.
 
-    If INTERNAL_API_KEY is unset we keep the legacy behaviour (no header
-    required) — operators who haven't yet rotated to the hardened flow stay
-    working — but we log a warning every time it's used unauth'd so it shows
-    up in monitoring. As soon as the env var is set, the routes lock down.
+    Fails CLOSED when `INTERNAL_API_KEY` is unset. The previous
+    fail-open-with-warning behaviour meant any operator who deployed
+    without setting the env var exposed `generate-bill`, `split-bill`,
+    `deduct-inventory`, and `unbilled-orders` to anyone who could guess a
+    slug — including spam vectors and inventory deductions on demand.
+    The bot in `app/routes/whatsapp_bot.py` reads the same env var and
+    only sends the header when it's set, so once the operator configures
+    it, both ends agree.
     """
     expected = _INTERNAL_API_KEY
     if not expected:
-        # Legacy mode — surface in logs so operators notice they should
-        # configure INTERNAL_API_KEY.
-        logger.warning(
-            "Internal endpoint called without INTERNAL_API_KEY configured. "
-            "Set the env var to enable authenticated internal calls."
+        # Fail closed and surface in logs so the operator notices on the
+        # first failed call rather than silently allowing the world in.
+        logger.error(
+            "Internal endpoint hit but INTERNAL_API_KEY is not configured. "
+            "Refusing the request. Set INTERNAL_API_KEY (and restart) to "
+            "enable internal self-calls from the bot."
         )
-        return
+        raise HTTPException(
+            status_code=503,
+            detail="Internal API disabled: INTERNAL_API_KEY not configured",
+        )
     provided = (provided or "").strip()
     if not provided or not hmac.compare_digest(
         provided.encode("utf-8"), expected.encode("utf-8")
