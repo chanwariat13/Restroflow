@@ -332,3 +332,251 @@ async def get_feedback(slug: str, x_client_password: str = Header(...)):
             "SELECT * FROM feedback ORDER BY date DESC LIMIT 50"
         )).fetchall()
     return JSONResponse([dict(r._mapping) for r in rows])
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLIENT — MENU ITEM VARIANTS + MODIFIERS  (P1 feature)
+# Restaurant owner can add S/M/L sizes, Half/Full portions, and topping/sauce
+# add-on groups directly from the client dashboard. Same data model the super
+# admin endpoints write to, just gated by the dashboard password instead of
+# the master ADMIN_SECRET.
+# ─────────────────────────────────────────────────────────────────────────────
+class CV_VariantBody(BaseModel):
+    name: str
+    price: float
+    is_default: bool = False
+    sort_order: int = 0
+    available: bool = True
+
+
+class CV_ModifierGroupBody(BaseModel):
+    name: str
+    min_select: int = 0
+    max_select: int = 1
+    sort_order: int = 0
+    required: bool = False
+
+
+class CV_ModifierBody(BaseModel):
+    name: str
+    price: float = 0
+    is_default: bool = False
+    sort_order: int = 0
+    available: bool = True
+
+
+# ── Variants ────────────────────────────────────────────────────────────────
+@router.get("/api/client/{slug}/menu/{item_id}/variants")
+async def client_list_variants(slug: str, item_id: int, x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        if not db.execute(text("SELECT 1 FROM menu WHERE id=:id"), {"id": item_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        rows = db.execute(text(
+            "SELECT id,menu_item_id,name,price,is_default,sort_order,available "
+            "FROM menu_item_variants WHERE menu_item_id=:mid ORDER BY sort_order, id"
+        ), {"mid": item_id}).fetchall()
+    return JSONResponse([{
+        "id": r.id, "menu_item_id": r.menu_item_id, "name": r.name,
+        "price": float(r.price or 0), "is_default": bool(r.is_default),
+        "sort_order": r.sort_order or 0, "available": bool(r.available)
+    } for r in rows])
+
+
+@router.post("/api/client/{slug}/menu/{item_id}/variants")
+async def client_add_variant(slug: str, item_id: int, body: CV_VariantBody,
+                              x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        if not db.execute(text("SELECT 1 FROM menu WHERE id=:id"), {"id": item_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        if body.is_default:
+            db.execute(text(
+                "UPDATE menu_item_variants SET is_default=FALSE WHERE menu_item_id=:mid"
+            ), {"mid": item_id})
+        new_id = db.execute(text(
+            "INSERT INTO menu_item_variants (menu_item_id,name,price,is_default,sort_order,available) "
+            "VALUES (:mid,:n,:p,:d,:o,:a) RETURNING id"
+        ), {"mid": item_id, "n": body.name, "p": body.price,
+             "d": body.is_default, "o": body.sort_order, "a": body.available}).scalar()
+        db.commit()
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/api/client/{slug}/variants/{variant_id}")
+async def client_update_variant(slug: str, variant_id: int, body: CV_VariantBody,
+                                 x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        row = db.execute(text("SELECT menu_item_id FROM menu_item_variants WHERE id=:id"),
+                          {"id": variant_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Variant not found")
+        if body.is_default:
+            db.execute(text(
+                "UPDATE menu_item_variants SET is_default=FALSE "
+                "WHERE menu_item_id=:mid AND id<>:id"
+            ), {"mid": row.menu_item_id, "id": variant_id})
+        db.execute(text(
+            "UPDATE menu_item_variants "
+            "SET name=:n,price=:p,is_default=:d,sort_order=:o,available=:a "
+            "WHERE id=:id"
+        ), {"n": body.name, "p": body.price, "d": body.is_default,
+             "o": body.sort_order, "a": body.available, "id": variant_id})
+        db.commit()
+    return JSONResponse({"success": True})
+
+
+@router.delete("/api/client/{slug}/variants/{variant_id}")
+async def client_delete_variant(slug: str, variant_id: int,
+                                 x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(text("DELETE FROM menu_item_variants WHERE id=:id"), {"id": variant_id})
+        db.commit()
+    return JSONResponse({"success": True})
+
+
+# ── Modifier Groups + Modifiers ──────────────────────────────────────────────
+@router.get("/api/client/{slug}/menu/{item_id}/modifier-groups")
+async def client_list_groups(slug: str, item_id: int, x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        if not db.execute(text("SELECT 1 FROM menu WHERE id=:id"), {"id": item_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        groups = db.execute(text(
+            "SELECT id,name,min_select,max_select,sort_order,required "
+            "FROM menu_item_modifier_groups WHERE menu_item_id=:mid "
+            "ORDER BY sort_order, id"
+        ), {"mid": item_id}).fetchall()
+        out = []
+        for g in groups:
+            mods = db.execute(text(
+                "SELECT id,name,price,is_default,sort_order,available "
+                "FROM menu_item_modifiers WHERE group_id=:gid ORDER BY sort_order, id"
+            ), {"gid": g.id}).fetchall()
+            out.append({
+                "id": g.id, "name": g.name,
+                "min_select": g.min_select or 0,
+                "max_select": g.max_select or 1,
+                "sort_order": g.sort_order or 0,
+                "required": bool(g.required),
+                "modifiers": [{
+                    "id": m.id, "name": m.name, "price": float(m.price or 0),
+                    "is_default": bool(m.is_default),
+                    "sort_order": m.sort_order or 0,
+                    "available": bool(m.available),
+                } for m in mods],
+            })
+    return JSONResponse(out)
+
+
+@router.post("/api/client/{slug}/menu/{item_id}/modifier-groups")
+async def client_add_group(slug: str, item_id: int, body: CV_ModifierGroupBody,
+                            x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    if body.max_select < max(1, body.min_select):
+        raise HTTPException(status_code=400,
+                            detail="max_select must be >= 1 and >= min_select")
+    with cfg.db_session() as db:
+        if not db.execute(text("SELECT 1 FROM menu WHERE id=:id"), {"id": item_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Menu item not found")
+        new_id = db.execute(text(
+            "INSERT INTO menu_item_modifier_groups "
+            "(menu_item_id,name,min_select,max_select,sort_order,required) "
+            "VALUES (:mid,:n,:mn,:mx,:o,:r) RETURNING id"
+        ), {"mid": item_id, "n": body.name, "mn": body.min_select,
+             "mx": body.max_select, "o": body.sort_order,
+             "r": body.required or body.min_select > 0}).scalar()
+        db.commit()
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/api/client/{slug}/modifier-groups/{group_id}")
+async def client_update_group(slug: str, group_id: int, body: CV_ModifierGroupBody,
+                               x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    if body.max_select < max(1, body.min_select):
+        raise HTTPException(status_code=400,
+                            detail="max_select must be >= 1 and >= min_select")
+    with cfg.db_session() as db:
+        db.execute(text(
+            "UPDATE menu_item_modifier_groups "
+            "SET name=:n,min_select=:mn,max_select=:mx,sort_order=:o,required=:r "
+            "WHERE id=:id"
+        ), {"n": body.name, "mn": body.min_select, "mx": body.max_select,
+             "o": body.sort_order, "r": body.required or body.min_select > 0,
+             "id": group_id})
+        db.commit()
+    return JSONResponse({"success": True})
+
+
+@router.delete("/api/client/{slug}/modifier-groups/{group_id}")
+async def client_delete_group(slug: str, group_id: int,
+                               x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        # Cascade delete child modifiers first
+        db.execute(text("DELETE FROM menu_item_modifiers WHERE group_id=:gid"),
+                    {"gid": group_id})
+        db.execute(text("DELETE FROM menu_item_modifier_groups WHERE id=:id"),
+                    {"id": group_id})
+        db.commit()
+    return JSONResponse({"success": True})
+
+
+@router.post("/api/client/{slug}/modifier-groups/{group_id}/modifiers")
+async def client_add_modifier(slug: str, group_id: int, body: CV_ModifierBody,
+                               x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        if not db.execute(text(
+            "SELECT 1 FROM menu_item_modifier_groups WHERE id=:gid"
+        ), {"gid": group_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Modifier group not found")
+        new_id = db.execute(text(
+            "INSERT INTO menu_item_modifiers "
+            "(group_id,name,price,is_default,sort_order,available) "
+            "VALUES (:gid,:n,:p,:d,:o,:a) RETURNING id"
+        ), {"gid": group_id, "n": body.name, "p": body.price,
+             "d": body.is_default, "o": body.sort_order, "a": body.available}).scalar()
+        db.commit()
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/api/client/{slug}/modifiers/{modifier_id}")
+async def client_update_modifier(slug: str, modifier_id: int, body: CV_ModifierBody,
+                                  x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(text(
+            "UPDATE menu_item_modifiers "
+            "SET name=:n,price=:p,is_default=:d,sort_order=:o,available=:a "
+            "WHERE id=:id"
+        ), {"n": body.name, "p": body.price, "d": body.is_default,
+             "o": body.sort_order, "a": body.available, "id": modifier_id})
+        db.commit()
+    return JSONResponse({"success": True})
+
+
+@router.delete("/api/client/{slug}/modifiers/{modifier_id}")
+async def client_delete_modifier(slug: str, modifier_id: int,
+                                  x_client_password: str = Header(...)):
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(text("DELETE FROM menu_item_modifiers WHERE id=:id"),
+                    {"id": modifier_id})
+        db.commit()
+    return JSONResponse({"success": True})

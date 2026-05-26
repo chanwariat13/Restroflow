@@ -143,6 +143,41 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
         return
 
+    # SPLIT T1 N — split today's paid+unbilled orders for table T1 into N equal
+    # shares; each share PDF goes to the owner. Optional comma-separated phones
+    # follow the count: "SPLIT T1 3 91xx,91yy,91zz" sends each share directly
+    # to the matching guest.
+    m = re.match(r"^SPLIT\s+T(\d+)\s+(\d+)(?:\s+([\d,]+))?$", upper)
+    if m:
+        table = f"T{m.group(1)}"
+        parts = max(2, int(m.group(2)))
+        phones_raw = m.group(3) or ""
+        phones = [p for p in phones_raw.split(",") if p]
+        shares = [{"label": f"Share {i+1}",
+                    "phone": phones[i] if i < len(phones) else "",
+                    "items": []}
+                   for i in range(parts)]
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    f"http://localhost:8000/webhook/{cfg.slug}/split-bill",
+                    json={"table": table, "mode": "equal",
+                           "parts": parts, "shares": shares,
+                           "notify_owner": True}
+                )
+            data = resp.json()
+            if data.get("success"):
+                amts = ", ".join(f"₹{a:.0f}" for a in data.get("share_totals", []))
+                await wa.send_text(cfg, staff_phone,
+                    f"✅ {table} split into {parts}: {amts}\n"
+                    f"PDFs sent to{' guests + ' if phones else ' '}owner.")
+            else:
+                await wa.send_text(cfg, staff_phone,
+                    f"⚠️ Split failed: {data.get('message') or data.get('error') or 'unknown'}")
+        except Exception as e:
+            await wa.send_text(cfg, staff_phone, f"⚠️ Split error: {e}")
+        return
+
     if upper == "RESTOCK":
         await _restock_template(cfg, staff_phone); return
 
@@ -366,6 +401,8 @@ async def _help(cfg: TenantConfig, staff_phone: str):
         "✅ *APPROVE 91xx*\n❌ *REJECT 91xx*\n💵 *CASH RECEIVED 91xx*\n"
         "🚫 *BLOCK 91xx*\n✅ *UNBLOCK 91xx*\n🗑️ *FREE T1*\n"
         "📊 *STATUS T1*\n📊 *TABLES*\n📄 *BILL T1*\n"
+        "✂️ *SPLIT T1 N* (split bill in N equal shares;\n"
+        "    optional phones: SPLIT T1 3 91aa,91bb,91cc)\n"
         "📦 *RESTOCK*\n📦 *STOCK*\n📊 *REPORT*\n💰 *AMOUNT T1*")
 
 
@@ -686,7 +723,8 @@ async def _call_deduct_inventory(cfg, orders, phone, table):
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(f"http://localhost:8000/webhook/{cfg.slug}/deduct-inventory",
-                              json={"items": [{"name": o["name"], "quantity": o["quantity"]} for o in orders],
+                              json={"items": [{"name": o.get("menu_name") or o["name"],
+                                                "quantity": o["quantity"]} for o in orders],
                                     "phone": phone, "table": table})
     except Exception:
         pass

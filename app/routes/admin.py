@@ -1129,3 +1129,293 @@ async def admin_audit_log(
         limit=max(1, min(int(limit or 200), 1000)),
     )
     return JSONResponse(rows)
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN — MENU ITEM VARIANTS + MODIFIERS  (P1 feature)
+# Variants: size/portion options that REPLACE base price (e.g. S/M/L, Half/Full).
+# Modifier groups + modifiers: add-ons that ADD to the price (e.g. Extra Cheese).
+# Each modifier group has min_select / max_select rules → required vs optional,
+# single-choice vs multi-choice. The customer-facing menu page consumes these
+# via the existing GET /webhook/{slug}/menu endpoint.
+# ─────────────────────────────────────────────────────────────────────────────
+class VariantBody(BaseModel):
+    name: str
+    price: float
+    is_default: bool = False
+    sort_order: int = 0
+    available: bool = True
+
+
+class ModifierGroupBody(BaseModel):
+    name: str
+    min_select: int = 0
+    max_select: int = 1
+    sort_order: int = 0
+    required: bool = False
+
+
+class ModifierBody(BaseModel):
+    name: str
+    price: float = 0
+    is_default: bool = False
+    sort_order: int = 0
+    available: bool = True
+
+
+def _ensure_menu_item(db, item_id: int):
+    row = db.execute(sqlt("SELECT id FROM menu WHERE id=:id"), {"id": item_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Menu item {item_id} not found")
+
+
+def _ensure_modifier_group(db, group_id: int, item_id: int):
+    row = db.execute(sqlt(
+        "SELECT id FROM menu_item_modifier_groups WHERE id=:gid AND menu_item_id=:mid"
+    ), {"gid": group_id, "mid": item_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404,
+                            detail=f"Modifier group {group_id} not found on item {item_id}")
+
+
+# ── Variants ────────────────────────────────────────────────────────────────
+@router.get("/admin/clients/{slug}/menu/{item_id}/variants")
+async def admin_list_variants(slug: str, item_id: int, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        _ensure_menu_item(db, item_id)
+        rows = db.execute(sqlt(
+            "SELECT id,menu_item_id,name,price,is_default,sort_order,available "
+            "FROM menu_item_variants WHERE menu_item_id=:mid ORDER BY sort_order, id"
+        ), {"mid": item_id}).fetchall()
+    return JSONResponse([{
+        "id": r.id, "menu_item_id": r.menu_item_id, "name": r.name,
+        "price": float(r.price or 0), "is_default": bool(r.is_default),
+        "sort_order": r.sort_order or 0, "available": bool(r.available)
+    } for r in rows])
+
+
+@router.post("/admin/clients/{slug}/menu/{item_id}/variants")
+async def admin_add_variant(slug: str, item_id: int, body: VariantBody,
+                             request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        _ensure_menu_item(db, item_id)
+        # If this one is_default, clear other defaults so radio behaviour is consistent
+        if body.is_default:
+            db.execute(sqlt(
+                "UPDATE menu_item_variants SET is_default=FALSE WHERE menu_item_id=:mid"
+            ), {"mid": item_id})
+        new_id = db.execute(sqlt(
+            "INSERT INTO menu_item_variants (menu_item_id,name,price,is_default,sort_order,available) "
+            "VALUES (:mid,:n,:p,:d,:o,:a) RETURNING id"
+        ), {"mid": item_id, "n": body.name, "p": body.price,
+             "d": body.is_default, "o": body.sort_order, "a": body.available}).scalar()
+        db.commit()
+    audit("menu.variant.create", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(new_id),
+          payload={"menu_item_id": item_id, "name": body.name, "price": body.price},
+          request=request)
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/admin/clients/{slug}/variants/{variant_id}")
+async def admin_update_variant(slug: str, variant_id: int, body: VariantBody,
+                                request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        # Find which item this variant belongs to (needed for is_default uniqueness)
+        row = db.execute(sqlt("SELECT menu_item_id FROM menu_item_variants WHERE id=:id"),
+                          {"id": variant_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Variant not found")
+        if body.is_default:
+            db.execute(sqlt(
+                "UPDATE menu_item_variants SET is_default=FALSE "
+                "WHERE menu_item_id=:mid AND id<>:id"
+            ), {"mid": row.menu_item_id, "id": variant_id})
+        db.execute(sqlt(
+            "UPDATE menu_item_variants "
+            "SET name=:n,price=:p,is_default=:d,sort_order=:o,available=:a "
+            "WHERE id=:id"
+        ), {"n": body.name, "p": body.price, "d": body.is_default,
+             "o": body.sort_order, "a": body.available, "id": variant_id})
+        db.commit()
+    audit("menu.variant.update", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(variant_id),
+          payload={"name": body.name, "price": body.price}, request=request)
+    return JSONResponse({"success": True})
+
+
+@router.delete("/admin/clients/{slug}/variants/{variant_id}")
+async def admin_delete_variant(slug: str, variant_id: int,
+                                request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(sqlt("DELETE FROM menu_item_variants WHERE id=:id"), {"id": variant_id})
+        db.commit()
+    audit("menu.variant.delete", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(variant_id), request=request)
+    return JSONResponse({"success": True})
+
+
+# ── Modifier Groups + Modifiers ──────────────────────────────────────────────
+@router.get("/admin/clients/{slug}/menu/{item_id}/modifier-groups")
+async def admin_list_groups(slug: str, item_id: int, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        _ensure_menu_item(db, item_id)
+        groups = db.execute(sqlt(
+            "SELECT id,name,min_select,max_select,sort_order,required "
+            "FROM menu_item_modifier_groups WHERE menu_item_id=:mid "
+            "ORDER BY sort_order, id"
+        ), {"mid": item_id}).fetchall()
+        out = []
+        for g in groups:
+            mods = db.execute(sqlt(
+                "SELECT id,name,price,is_default,sort_order,available "
+                "FROM menu_item_modifiers WHERE group_id=:gid ORDER BY sort_order, id"
+            ), {"gid": g.id}).fetchall()
+            out.append({
+                "id": g.id, "name": g.name,
+                "min_select": g.min_select or 0,
+                "max_select": g.max_select or 1,
+                "sort_order": g.sort_order or 0,
+                "required": bool(g.required),
+                "modifiers": [{
+                    "id": m.id, "name": m.name, "price": float(m.price or 0),
+                    "is_default": bool(m.is_default),
+                    "sort_order": m.sort_order or 0,
+                    "available": bool(m.available),
+                } for m in mods],
+            })
+    return JSONResponse(out)
+
+
+@router.post("/admin/clients/{slug}/menu/{item_id}/modifier-groups")
+async def admin_add_group(slug: str, item_id: int, body: ModifierGroupBody,
+                           request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    if body.max_select < max(1, body.min_select):
+        raise HTTPException(status_code=400,
+                            detail="max_select must be >= 1 and >= min_select")
+    with cfg.db_session() as db:
+        _ensure_menu_item(db, item_id)
+        new_id = db.execute(sqlt(
+            "INSERT INTO menu_item_modifier_groups "
+            "(menu_item_id,name,min_select,max_select,sort_order,required) "
+            "VALUES (:mid,:n,:mn,:mx,:o,:r) RETURNING id"
+        ), {"mid": item_id, "n": body.name, "mn": body.min_select,
+             "mx": body.max_select, "o": body.sort_order,
+             "r": body.required or body.min_select > 0}).scalar()
+        db.commit()
+    audit("menu.modgroup.create", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(new_id),
+          payload={"menu_item_id": item_id, "name": body.name},
+          request=request)
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/admin/clients/{slug}/modifier-groups/{group_id}")
+async def admin_update_group(slug: str, group_id: int, body: ModifierGroupBody,
+                              request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    if body.max_select < max(1, body.min_select):
+        raise HTTPException(status_code=400,
+                            detail="max_select must be >= 1 and >= min_select")
+    with cfg.db_session() as db:
+        db.execute(sqlt(
+            "UPDATE menu_item_modifier_groups "
+            "SET name=:n,min_select=:mn,max_select=:mx,sort_order=:o,required=:r "
+            "WHERE id=:id"
+        ), {"n": body.name, "mn": body.min_select, "mx": body.max_select,
+             "o": body.sort_order, "r": body.required or body.min_select > 0,
+             "id": group_id})
+        db.commit()
+    audit("menu.modgroup.update", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(group_id),
+          payload={"name": body.name}, request=request)
+    return JSONResponse({"success": True})
+
+
+@router.delete("/admin/clients/{slug}/modifier-groups/{group_id}")
+async def admin_delete_group(slug: str, group_id: int,
+                              request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        # Cascade delete child modifiers first
+        db.execute(sqlt("DELETE FROM menu_item_modifiers WHERE group_id=:gid"),
+                    {"gid": group_id})
+        db.execute(sqlt("DELETE FROM menu_item_modifier_groups WHERE id=:id"),
+                    {"id": group_id})
+        db.commit()
+    audit("menu.modgroup.delete", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(group_id), request=request)
+    return JSONResponse({"success": True})
+
+
+@router.post("/admin/clients/{slug}/modifier-groups/{group_id}/modifiers")
+async def admin_add_modifier(slug: str, group_id: int, body: ModifierBody,
+                              request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        # Verify group exists
+        if not db.execute(sqlt(
+            "SELECT 1 FROM menu_item_modifier_groups WHERE id=:gid"
+        ), {"gid": group_id}).fetchone():
+            raise HTTPException(status_code=404, detail="Modifier group not found")
+        new_id = db.execute(sqlt(
+            "INSERT INTO menu_item_modifiers "
+            "(group_id,name,price,is_default,sort_order,available) "
+            "VALUES (:gid,:n,:p,:d,:o,:a) RETURNING id"
+        ), {"gid": group_id, "n": body.name, "p": body.price,
+             "d": body.is_default, "o": body.sort_order, "a": body.available}).scalar()
+        db.commit()
+    audit("menu.modifier.create", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(new_id),
+          payload={"group_id": group_id, "name": body.name, "price": body.price},
+          request=request)
+    return JSONResponse({"success": True, "id": new_id})
+
+
+@router.patch("/admin/clients/{slug}/modifiers/{modifier_id}")
+async def admin_update_modifier(slug: str, modifier_id: int, body: ModifierBody,
+                                 request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(sqlt(
+            "UPDATE menu_item_modifiers "
+            "SET name=:n,price=:p,is_default=:d,sort_order=:o,available=:a "
+            "WHERE id=:id"
+        ), {"n": body.name, "p": body.price, "d": body.is_default,
+             "o": body.sort_order, "a": body.available, "id": modifier_id})
+        db.commit()
+    audit("menu.modifier.update", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(modifier_id),
+          payload={"name": body.name, "price": body.price}, request=request)
+    return JSONResponse({"success": True})
+
+
+@router.delete("/admin/clients/{slug}/modifiers/{modifier_id}")
+async def admin_delete_modifier(slug: str, modifier_id: int,
+                                 request: Request, x_admin_secret: str = Header(...)):
+    _auth(x_admin_secret)
+    cfg = load_tenant(slug)
+    with cfg.db_session() as db:
+        db.execute(sqlt("DELETE FROM menu_item_modifiers WHERE id=:id"),
+                    {"id": modifier_id})
+        db.commit()
+    audit("menu.modifier.delete", actor="admin", actor_role="superadmin",
+          slug=slug, target=str(modifier_id), request=request)
+    return JSONResponse({"success": True})

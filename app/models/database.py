@@ -260,6 +260,46 @@ class MenuItem(TenantBase):
     dietary_tags = Column(String, default="")            # NEW: csv: jain,vegan,glutenfree,egg,spicy
 
 
+# ── Order modifiers + variants (P1 feature) ──────────────────────────────────
+# An item can have ONE size variant (S/M/L, Half/Full, etc.) that REPLACES the
+# base price, and ZERO OR MORE modifier groups (toppings, sauces, prep style).
+# Each group has min/max selection rules. Selected modifiers ADD to the price.
+class MenuItemVariant(TenantBase):
+    """e.g. menu_item_id=1 (Pizza) → [Small ₹0, Medium ₹100, Large ₹200] (price = absolute, not delta)."""
+    __tablename__ = "menu_item_variants"
+    id            = Column(Integer, primary_key=True)
+    menu_item_id  = Column(Integer, nullable=False, index=True)
+    name          = Column(String, nullable=False)       # "Small", "Medium", "Half", "Full"
+    price         = Column(Numeric, nullable=False)      # absolute price for this variant
+    is_default    = Column(Boolean, default=False)       # the variant pre-selected in UI
+    sort_order    = Column(Integer, default=0)
+    available     = Column(Boolean, default=True)
+
+
+class MenuItemModifierGroup(TenantBase):
+    """e.g. menu_item_id=1 → group "Extra Toppings" (min=0, max=4)."""
+    __tablename__ = "menu_item_modifier_groups"
+    id            = Column(Integer, primary_key=True)
+    menu_item_id  = Column(Integer, nullable=False, index=True)
+    name          = Column(String, nullable=False)       # "Extra Toppings", "Spice Level"
+    min_select    = Column(Integer, default=0)           # 0 = optional
+    max_select    = Column(Integer, default=1)           # 1 = single-choice (radio), N = multi (checkbox)
+    sort_order    = Column(Integer, default=0)
+    required      = Column(Boolean, default=False)       # convenience flag (=> min_select>=1)
+
+
+class MenuItemModifier(TenantBase):
+    """e.g. group "Extra Toppings" → [Cheese ₹40, Olives ₹30, Mushroom ₹35]."""
+    __tablename__ = "menu_item_modifiers"
+    id            = Column(Integer, primary_key=True)
+    group_id      = Column(Integer, nullable=False, index=True)
+    name          = Column(String, nullable=False)       # "Extra Cheese", "Mild", "Hot"
+    price         = Column(Numeric, default=0)           # add-on price (can be 0 for free options)
+    is_default    = Column(Boolean, default=False)
+    sort_order    = Column(Integer, default=0)
+    available     = Column(Boolean, default=True)
+
+
 # ── Postgres type mapping for auto-migration ──────────────────────────────────
 def _pg_type_for(col: Column) -> str:
     """Map a SQLAlchemy Column to a Postgres column type string."""
