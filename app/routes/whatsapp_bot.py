@@ -6,7 +6,6 @@ slug in the URL identifies which client/restaurant this message belongs to.
 All logic is identical to single-tenant version but uses TenantConfig + slug-prefixed Redis.
 """
 import re
-import httpx
 import secrets as _secrets
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -65,9 +64,14 @@ async def _handle_message(cfg: TenantConfig, body: dict):
         if not phone:
             return
 
-        phone_last10 = phone[-10:]
-        is_staff   = any(s[-10:] == phone_last10 for s in cfg.all_staff)
-        is_kitchen = any(k[-10:] == phone_last10 for k in cfg.kitchen_numbers)
+        # Match staff/kitchen by FULL phone string, not just last 10 digits.
+        # The previous `phone[-10:] == s[-10:]` check let anyone whose number
+        # happened to end with the same 10 digits as a staff number (e.g. a
+        # different country code, attacker-controlled SIM) impersonate staff
+        # and run APPROVE / BLOCK / RESTOCK. WhatsApp JIDs already include
+        # the full international number; compare it directly.
+        is_staff   = phone in cfg.all_staff
+        is_kitchen = phone in cfg.kitchen_numbers
         session    = rc.get_session(cfg.slug, phone)
 
         if is_kitchen:
@@ -135,12 +139,15 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
     if m:
         table = f"T{m.group(1)}"
         phone = rc.get_table_phone(cfg.slug, table) or ""
-        async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(
-                f"http://localhost:8000/webhook/{cfg.slug}/generate-bill",
-                json={"table": table, "phone": phone}
-            )
-        await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
+        # Call generate_bill in-process — previously this POSTed back to
+        # localhost:8000, which broke whenever the service ran on a non-default
+        # port or behind a reverse proxy.
+        from app.routes.api_routes import generate_bill, BillRequest
+        try:
+            await generate_bill(BillRequest(table=table, phone=phone), slug=cfg.slug)
+            await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
+        except Exception as e:
+            await wa.send_text(cfg, staff_phone, f"⚠️ Bill error: {e}")
         return
 
     # SPLIT T1 N — split today's paid+unbilled orders for table T1 into N equal
@@ -157,15 +164,20 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
                     "phone": phones[i] if i < len(phones) else "",
                     "items": []}
                    for i in range(parts)]
+        # Direct in-process call (was localhost:8000 self-call). Build the
+        # SplitBillRequest pydantic model from the same dict that was being
+        # POSTed before.
+        from app.routes.api_routes import split_bill, SplitBillRequest
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.post(
-                    f"http://localhost:8000/webhook/{cfg.slug}/split-bill",
-                    json={"table": table, "mode": "equal",
-                           "parts": parts, "shares": shares,
-                           "notify_owner": True}
-                )
-            data = resp.json()
+            req = SplitBillRequest(
+                table=table, mode="equal", parts=parts,
+                shares=shares, notify_owner=True,
+            )
+            resp = await split_bill(req, slug=cfg.slug)
+            # split_bill returns a JSONResponse — peek into its body to give
+            # the operator the same feedback as before.
+            import json as _json
+            data = _json.loads(resp.body.decode())
             if data.get("success"):
                 amts = ", ".join(f"₹{a:.0f}" for a in data.get("share_totals", []))
                 await wa.send_text(cfg, staff_phone,
@@ -559,10 +571,14 @@ async def _cust_paid(cfg, phone, upper, session):
     name = session.get("name", ""); table = session.get("table", "")
     if upper in ("8", "CHECKOUT"): await _checkout(cfg, phone, session); return
     if upper in ("5", "BILL"):
-        async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(f"http://localhost:8000/webhook/{cfg.slug}/generate-bill",
-                              json={"table": table, "phone": phone})
-        await wa.send_text(cfg, phone, "📄 Bill sent!"); return
+        # Re-issue PDF bill in-process (no more localhost:8000 self-call).
+        from app.routes.api_routes import generate_bill, BillRequest
+        try:
+            await generate_bill(BillRequest(table=table, phone=phone), slug=cfg.slug)
+            await wa.send_text(cfg, phone, "📄 Bill sent!")
+        except Exception:
+            await wa.send_text(cfg, phone, "⚠️ Could not send bill. Please ask staff.")
+        return
     if upper in ("7", "WAITER"):
         await wa.send_all_staff(cfg, f"🔔 *WAITER*\n🪑 {table} | 👤 {name}")
         await wa.send_text(cfg, phone, "🔔 Waiter notified!"); return

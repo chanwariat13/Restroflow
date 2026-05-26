@@ -3,6 +3,8 @@ routes/client_dashboard.py
 API endpoints for the client (restaurant owner) dashboard.
 Login with slug + dashboard_password → see only their own data.
 """
+import hmac
+import json, os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Header, HTTPException
@@ -10,7 +12,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from typing import Optional
-import json, os
 
 from app.models.database import MasterSession, Client, get_tenant_session
 from app.utils.tenant import load_tenant
@@ -33,7 +34,14 @@ def _get_client(slug: str) -> Client:
 
 def _auth_client(slug: str, password: str) -> Client:
     c = _get_client(slug)
-    if not c.dashboard_password or c.dashboard_password != password:
+    stored = (c.dashboard_password or "")
+    # Constant-time compare on a non-empty stored password to avoid byte-by-byte
+    # timing leaks. (Storage itself is still plain-text — bcrypt migration is
+    # tracked separately.) An empty stored password is rejected outright so
+    # an unconfigured tenant never accepts an empty input.
+    if not stored or not password:
+        raise HTTPException(status_code=401, detail="Wrong password")
+    if not hmac.compare_digest(stored, password):
         raise HTTPException(status_code=401, detail="Wrong password")
     return c
 

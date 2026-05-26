@@ -590,6 +590,28 @@ async def _process_razorpay(cfg: TenantConfig, body: dict):
 
     amount = payment.get("amount", 0) / 100
     method = payment.get("method", "Online")
+    payment_id = payment.get("id", "") or pay_link.get("id", "") or ""
+
+    # Idempotency: Razorpay retries the same event on any non-2xx. We key on
+    # the order_id (already unique per cart) — if a row with this order_id
+    # is already in the orders table, the payment was already booked and
+    # we no-op. This is a best-effort defence; a unique index on orders.order_id
+    # is the durable guarantee but already exists from the schema.
+    if order_id:
+        try:
+            with cfg.db_session() as db:
+                row = db.execute(text(
+                    "SELECT 1 FROM orders WHERE order_id=:oid LIMIT 1"
+                ), {"oid": order_id}).fetchone()
+            if row:
+                logger.info("razorpay duplicate event ignored: order_id=%s", order_id)
+                return
+        except Exception:
+            # If the lookup fails (e.g. transient DB hiccup) fall through to
+            # the existing flow — at worst we double-write and the unique
+            # constraint will throw, but we'd rather try than silently drop
+            # a real payment.
+            pass
 
     session = rc.get_session(cfg.slug, phone)
     if not session or session.get("status") not in ("PENDING_PAYMENT",):
