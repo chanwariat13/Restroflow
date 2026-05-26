@@ -176,7 +176,10 @@ async def menu_page(slug: str):
     # Read the menu HTML template and inject branding
     path = os.path.join(os.path.dirname(__file__), "..", "..", "static", "menu.html")
     try:
-        with open(path) as f:
+        # Always read as UTF-8 — the template contains ₹, emoji and other
+        # non-ASCII content that breaks on platforms whose default encoding
+        # isn't UTF-8 (Windows cp1252, certain CI runners, etc.).
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         content = (content
             .replace("__SLUG__", slug)

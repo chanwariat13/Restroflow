@@ -33,10 +33,26 @@ async def register(req: RegisterRequest, slug: str = Path(...)):
         return JSONResponse({"success": False, "error": "Invalid phone number"})
     if not name or len(name) < 2:
         return JSONResponse({"success": False, "error": "Invalid name"})
-    if not re.match(r"^T\d{1,2}$", table):
+    # Allow whatever table prefix this tenant configured (e.g. "T", "A", "TBL").
+    # The previous hardcoded "^T\d{1,2}$" silently rejected every QR code for
+    # any client that picked a different prefix.
+    _prefix = re.escape((cfg.table_prefix or "T").upper())
+    if not re.match(rf"^{_prefix}\d{{1,3}}$", table):
         return JSONResponse({"success": False, "error": "Invalid table"})
 
     expected = cfg.table_secrets.get(table)
+    # Fall back to the same default secret used by the admin and client
+    # QR-code endpoints (see admin.py / client_dashboard.py /api/.../qr-codes).
+    # Without this fallback, every QR generated for a brand-new client would
+    # be silently rejected here until an operator manually wrote a value into
+    # `table_secrets` JSON for every table.
+    if not expected:
+        try:
+            idx = int(re.sub(r"\D", "", table) or "0")
+        except ValueError:
+            idx = 0
+        if idx > 0:
+            expected = f"{slug[:3].upper()}{2025 + idx}"
     if not expected or expected != req.secret.strip():
         return JSONResponse({"success": False, "error": "Invalid QR code. Scan the correct table QR."})
 

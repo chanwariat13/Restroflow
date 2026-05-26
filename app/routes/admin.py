@@ -4,6 +4,7 @@ REST API to manage clients — add, update, list, activate/deactivate.
 Protected by ADMIN_SECRET env variable.
 This is how you onboard new restaurants — just one API call.
 """
+import hmac
 import json
 import os
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -22,7 +23,16 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "change-this-secret")
 
 
 def _auth(secret: str):
-    if secret != ADMIN_SECRET:
+    """Constant-time admin-secret check.
+
+    Plain string `==` short-circuits on the first differing byte, leaking the
+    common prefix length via timing. `hmac.compare_digest` always walks the
+    full byte string. We also normalize None/non-str to empty strings so an
+    accidentally-missing header can't crash the comparison.
+    """
+    provided = (secret or "").encode("utf-8")
+    expected = (ADMIN_SECRET or "").encode("utf-8")
+    if not provided or not expected or not hmac.compare_digest(provided, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

@@ -48,11 +48,18 @@ def _money(v) -> float:
 
 
 def _date_for_tally(s: str) -> str:
-    """Tally wants YYYYMMDD. Order.date_only is 'd/m/YYYY' (no leading zeros)."""
+    """Tally wants YYYYMMDD. Order.date_only is 'd/m/YYYY' (no leading zeros).
+
+    The `%-d/%-m/%Y` format literal is a GNU-libc strftime *output* extension
+    and is NOT understood by `strptime` on any platform — it always raises
+    `ValueError`. The plain `%d/%m/%Y` parser handles both '7/3/2025' and
+    '07/03/2025' on every platform, so the GNU-only entry was just a dead
+    branch and has been dropped.
+    """
     if not s:
         return datetime.now().strftime("%Y%m%d")
     s = str(s).strip()
-    for fmt in ("%d/%m/%Y", "%-d/%-m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
         try:
             return datetime.strptime(s, fmt).strftime("%Y%m%d")
         except ValueError:

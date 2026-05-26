@@ -37,13 +37,19 @@ logger = logging.getLogger(__name__)
 # placeholder, the master admin API is effectively unauthenticated, so we abort
 # boot here rather than ship a wide-open server.
 _ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
-if not _ADMIN_SECRET or _ADMIN_SECRET == "change-this-secret":
+_BANNED_ADMIN_SECRETS = {
+    "", "change-this-secret", "changeme", "secret", "admin", "admin123",
+    "password", "password123", "letmein", "test", "testing",
+}
+if _ADMIN_SECRET in _BANNED_ADMIN_SECRETS or len(_ADMIN_SECRET) < 16:
     logger.critical(
-        "ADMIN_SECRET is not set (or still 'change-this-secret'). "
-        "Refusing to start — set a strong ADMIN_SECRET env var."
+        "ADMIN_SECRET is missing or weak (must be at least 16 characters and "
+        "not one of the well-known defaults). Refusing to start. Generate a "
+        "strong value, e.g. `python -c \"import secrets;print(secrets.token_urlsafe(48))\"`."
     )
     raise SystemExit(
-        "ADMIN_SECRET must be set to a strong, unique value before starting RestroFlow."
+        "ADMIN_SECRET must be set to a strong (≥16-char), unique value before "
+        "starting RestroFlow."
     )
 
 
