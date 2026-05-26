@@ -105,3 +105,44 @@ def clear_customer(slug: str, phone: str, table: str) -> None:
     delete_session(slug, phone)
     delete_table(slug, table)
     delete_pending(slug, phone)
+
+
+# ── Idempotency helpers ───────────────────────────────────────────────────────
+# Used by the Razorpay webhook to short-circuit retries that would otherwise
+# insert the same `orders` row twice and double-deduct inventory.
+def claim_event(slug: str, namespace: str, event_id: str, ttl: int = 7 * 24 * 3600) -> bool:
+    """
+    Atomically mark `event_id` as processed for this tenant + namespace.
+    Returns True if this is the first time we've seen the id (caller MUST
+    proceed with side-effects), False if already claimed (caller MUST short-
+    circuit). TTL defaults to 7 days, well past Razorpay's retry window.
+    """
+    if not event_id:
+        # Without an id we can't dedupe — fall through and let the caller
+        # handle as a fresh event. Better than blocking legitimate traffic.
+        return True
+    key = _k(slug, "evt", namespace, str(event_id))
+    # SET key value NX EX ttl  →  returns OK only if key did not exist.
+    return bool(_redis.set(key, "1", nx=True, ex=ttl))
+
+
+# ── Simple per-key rate limit (token-counter style) ──────────────────────────
+# Suitable for low-stakes, public, read-only endpoints (e.g. the
+# returning-guest lookup) where we just want to stop a runaway scraper.
+# Caller passes any opaque key (typically slug + ip + endpoint name); we
+# return True if the request is within budget, False to reject with 429.
+def rate_limit_check(key: str, limit: int, window_seconds: int = 60) -> bool:
+    """
+    Increments a counter at `rl:<key>` with a `window_seconds` TTL on first
+    increment. Returns True iff the resulting count is ≤ `limit`. Race
+    conditions are inconsequential at this resolution.
+    """
+    full_key = f"rl:{key}"
+    pipe = _redis.pipeline()
+    pipe.incr(full_key, 1)
+    pipe.expire(full_key, window_seconds, nx=True)
+    count, _ = pipe.execute()
+    try:
+        return int(count) <= int(limit)
+    except (TypeError, ValueError):
+        return True

@@ -293,9 +293,13 @@ async def list_staff(slug: str, x_admin_secret: str = Header(...)):
                      .filter(StaffMember.slug == slug, StaffMember.active == True)
                      .order_by(StaffMember.id.desc())
                      .all())
+        # Never return the PIN in list responses — it leaks every active
+        # PIN to anyone with admin access, including browser cache, logs,
+        # and any HAR file the operator shares for support. We expose
+        # `pin_set` instead so the admin UI can still show "PIN configured ✓".
         return JSONResponse([{
             "id": m.id, "phone": m.phone, "name": m.name,
-            "role": m.role, "pin": m.pin, "active": m.active
+            "role": m.role, "pin_set": bool(m.pin), "active": m.active,
         } for m in members])
     finally:
         db.close()
@@ -932,6 +936,8 @@ async def admin_update_full_settings(slug: str, body: AdminFullSettings,
 @router.get("/admin/clients/{slug}/qr-codes")
 async def admin_qr_codes(slug: str, request: Request, x_admin_secret: str = Header(...)):
     _auth(x_admin_secret)
+    import secrets as _sec
+    from app.utils.tenant import invalidate_cache
     db = MasterSession()
     try:
         c = db.query(Client).filter(Client.slug == slug).first()
@@ -942,14 +948,30 @@ async def admin_qr_codes(slug: str, request: Request, x_admin_secret: str = Head
         except Exception:
             secrets = {}
         base_url = str(request.base_url).rstrip("/")
+        # SECURITY: Materialise a fresh, cryptographically-random secret for
+        # any table that doesn't yet have one, and persist back to the DB so
+        # the registration endpoint (which now fails closed when the secret
+        # is missing) sees the same value. This replaces the previous
+        # predictable f"{slug[:3].upper()}{2025+i}" fallback that anyone
+        # could derive from the slug exposed in /r/{slug} URLs.
+        added_any = False
+        prefix = (c.table_prefix or "T").upper()
         qr_codes = []
         for i in range(1, (c.table_count or 10) + 1):
-            table  = f"{c.table_prefix or 'T'}{i}"
-            secret = secrets.get(table, f"{slug[:3].upper()}{2025+i}")
+            table  = f"{prefix}{i}"
+            secret = secrets.get(table)
+            if not secret:
+                secret = _sec.token_urlsafe(16)
+                secrets[table] = secret
+                added_any = True
             reg_url = f"{base_url}/r/{slug}?table={table}&secret={secret}"
             qr_api  = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data={reg_url}"
             qr_codes.append({"table": table, "secret": secret,
                               "reg_url": reg_url, "qr_image": qr_api})
+        if added_any:
+            c.table_secrets = json.dumps(secrets)
+            db.commit()
+            invalidate_cache(slug)
         return JSONResponse(qr_codes)
     finally:
         db.close()
@@ -1015,8 +1037,12 @@ async def admin_approve(slug: str, body: AdminPhoneAction, x_admin_secret: str =
     if not session or session.get("status") != "AWAITING_APPROVAL":
         return JSONResponse({"success": False, "error": "No pending request"})
     token    = _sec.token_hex(8)
-    menu_url = (f"{cfg.menu_url or 'https://restroflow.coolify.yeshikasingh.cloud'}"
-                f"/menu/{slug}?t={session['table']}&p={body.cust_phone}"
+    # Use the tenant's configured menu_url, or fall back to PUBLIC_BASE_URL.
+    # Hardcoded production URLs are removed — they pinned every deployment
+    # to one specific host.
+    base_url = (cfg.menu_url or os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+    menu_url = (f"{base_url}/menu/{slug}"
+                f"?t={session['table']}&p={body.cust_phone}"
                 f"&n={session['name'].split()[0]}&k={token}")
     session.update({
         "status":     "ORDERING",
@@ -1095,7 +1121,9 @@ async def admin_cash_confirm(slug: str, body: AdminPhoneAction,
     table     = session.get("table", "")
     now_ist   = datetime.now(IST)
     items_str = ", ".join(f"{o['quantity']}x {o['name']}" for o in orders)
-    order_id  = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}"
+    # Random suffix to avoid same-second collisions; see staff_dashboard.cash_confirm.
+    import secrets as _sec
+    order_id  = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}{_sec.token_hex(5)}"
     customer_gstin = session.get("customer_gstin", "")
     with cfg.db_session() as db:
         db.execute(sqlt("""

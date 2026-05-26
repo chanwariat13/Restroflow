@@ -188,7 +188,11 @@ async def staff_approve(req: ApproveReq):
     if not session or session.get("status") != "AWAITING_APPROVAL":
         return JSONResponse({"success": False, "error": "No pending request"})
     token    = _sec.token_hex(8)
-    menu_url = f"{cfg.menu_url or 'https://restroflow.coolify.yeshikasingh.cloud'}/menu/{req.slug}?t={session['table']}&p={req.cust_phone}&n={session['name'].split()[0]}&k={token}"
+    # Drop the hardcoded "https://restroflow.coolify.yeshikasingh.cloud"
+    # fallback — it broke every deployment that wasn't ours. Now we trust
+    # cfg.menu_url (set per-tenant in admin) or fall back to PUBLIC_BASE_URL.
+    base_url = (cfg.menu_url or os.getenv("PUBLIC_BASE_URL") or "").rstrip("/")
+    menu_url = f"{base_url}/menu/{req.slug}?t={session['table']}&p={req.cust_phone}&n={session['name'].split()[0]}&k={token}"
     session.update({"status":"ORDERING","approvedAt":datetime.utcnow().isoformat(),"menuToken":token,"menuURL":menu_url})
     rc.save_session(req.slug, req.cust_phone, session, cfg.session_ttl)
     rc.set_table(req.slug, session["table"], req.cust_phone, pending=False, ttl=cfg.session_ttl)
@@ -240,7 +244,11 @@ async def cash_confirm(req: CashReq):
     name = session.get("name","Customer"); table = session.get("table","")
     now_ist = datetime.now(IST)
     items_str = ", ".join(f"{o['quantity']}x {o['name']}" for o in orders)
-    order_id = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}"
+    # Use cryptographically random suffix instead of bare timestamp; the
+    # latter collides on concurrent confirms in the same second and silently
+    # produced duplicate `orders` rows in production.
+    import secrets as _sec
+    order_id = session.get("orderId") or f"ORD{int(datetime.now().timestamp())}{_sec.token_hex(5)}"
     with cfg.db_session() as db:
         db.execute(sqlt("""
             INSERT INTO orders (order_id,date,date_only,customer_name,phone,table_name,
