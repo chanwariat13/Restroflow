@@ -461,19 +461,48 @@ function logout() {
   window.location.href = '/login';
 }
 
-// Auto-login from the unified /login page (sessionStorage-cached creds).
-// Falls back silently to the inline login form if no creds are stashed.
-(function bootstrapClientAuth(){
+// ── Require unified login (matches HotelFlow's /hotel/{slug} behaviour) ──
+// If we don't have cached creds for this owner, redirect straight to
+// /login — the inline form below is never shown to users in normal use.
+// Pass the slug from the URL so /login can pre-fill the Restaurant ID
+// and pre-select the Owner role for a one-click experience.
+(function requireOwnerAuth() {
+  let slug = '', pass = '';
   try {
-    const slug = sessionStorage.getItem('rf_client_slug');
-    const pass = sessionStorage.getItem('rf_client_password');
-    if (!slug || !pass) return;
-    const sIn = document.getElementById('l-slug');
-    const pIn = document.getElementById('l-pass');
-    if (sIn) sIn.value = slug;
-    if (pIn) pIn.value = pass;
-    setTimeout(() => { try { login(); } catch(e) {} }, 0);
-  } catch(e) {}
+    slug = sessionStorage.getItem('rf_client_slug')     || '';
+    pass = sessionStorage.getItem('rf_client_password') || '';
+  } catch (e) {}
+
+  const slugFromUrl = window.location.pathname.split('/')[2] || '';
+  function gotoLogin() {
+    const qs = '?tab=restro&role=owner' + (slugFromUrl ? '&slug=' + encodeURIComponent(slugFromUrl) : '');
+    window.location.replace('/login' + qs);
+  }
+
+  if (!slug || !pass) { gotoLogin(); return; }
+
+  // Hide the inline form so the redirect-on-failure case doesn't flash it.
+  const screen = document.getElementById('login');
+  if (screen) screen.style.visibility = 'hidden';
+
+  const sIn = document.getElementById('l-slug');
+  const pIn = document.getElementById('l-pass');
+  if (sIn) sIn.value = slug;
+  if (pIn) pIn.value = pass;
+
+  setTimeout(() => { try { login(); } catch (e) {} }, 0);
+
+  // Watchdog: stale cached creds → clear and bounce to /login.
+  setTimeout(() => {
+    const app = document.getElementById('app');
+    if (!app || app.style.display !== 'block') {
+      try {
+        sessionStorage.removeItem('rf_client_slug');
+        sessionStorage.removeItem('rf_client_password');
+      } catch (e) {}
+      gotoLogin();
+    }
+  }, 2500);
 })();
 
 // ── NAVIGATION ─────────────────────────────────────────────────────────────
