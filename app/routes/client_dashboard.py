@@ -5,7 +5,7 @@ Login with slug + dashboard_password → see only their own data.
 """
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -595,6 +595,7 @@ async def client_delete_modifier(slug: str, modifier_id: int,
 @router.get("/api/client/{slug}/tally/export")
 async def tally_export(
     slug: str,
+    request: Request,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
     format: str = "xml",
@@ -635,6 +636,7 @@ async def tally_export(
         payload={"from": from_date, "to": to_date,
                  "format": fmt, "rows": len(orders),
                  "include_unpaid": bool(include_unpaid)},
+        request=request,
     )
 
     fname = f"tally-{slug}-{from_date}-to-{to_date}.{fmt}"
