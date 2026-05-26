@@ -113,6 +113,48 @@
   .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
   .empty-icon { font-size:48px; margin-bottom:12px; }
 
+  /* CUSTOMIZE SHEET (variants + modifiers) */
+  .cz-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:300; display:none; }
+  .cz-overlay.open { display:block; }
+  .cz-sheet { position:fixed; bottom:0; left:0; right:0; background:var(--surface);
+    border-radius:20px 20px 0 0; border-top:1px solid var(--border); z-index:301;
+    transform:translateY(100%); transition:transform 0.3s ease; max-height:85vh;
+    overflow-y:auto; padding-bottom:120px; }
+  .cz-sheet.open { transform:translateY(0); }
+  .cz-hdr { padding:16px 20px; border-bottom:1px solid var(--border);
+    display:flex; align-items:flex-start; justify-content:space-between; position:sticky;
+    top:0; background:var(--surface); z-index:2; }
+  .cz-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; }
+  .cz-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+  .cz-x { background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+    width:30px; height:30px; cursor:pointer; color:var(--muted); font-size:18px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .cz-body { padding:14px 20px; }
+  .cz-group { margin-bottom:18px; }
+  .cz-group-name { font-size:13px; font-weight:700; margin-bottom:4px; display:flex;
+    align-items:center; justify-content:space-between; }
+  .cz-rule { font-size:11px; color:var(--muted); margin-bottom:10px; }
+  .cz-req { color:#ff6b6b; font-size:11px; font-weight:600; }
+  .cz-opt-row { display:flex; align-items:center; justify-content:space-between;
+    padding:10px 12px; background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; margin-bottom:6px; cursor:pointer; transition:border-color 0.15s; }
+  .cz-opt-row.selected { border-color:var(--accent); background:rgba(255,107,53,0.1); }
+  .cz-opt-row.disabled { opacity:0.4; cursor:not-allowed; }
+  .cz-opt-name { font-size:14px; }
+  .cz-opt-price { font-size:13px; color:var(--accent); font-weight:600; }
+  .cz-foot { position:fixed; bottom:0; left:0; right:0; padding:14px 20px;
+    background:var(--surface); border-top:1px solid var(--border); z-index:302;
+    display:none; flex-direction:column; gap:8px; }
+  .cz-foot.open { display:flex; }
+  .cz-total-row { display:flex; align-items:center; justify-content:space-between;
+    font-size:14px; }
+  .cz-total-amt { font-family:'Syne',sans-serif; font-size:18px; font-weight:700;
+    color:var(--accent); }
+  .cz-add-btn { background:linear-gradient(135deg,var(--accent),#ff8c5a); border:none;
+    border-radius:12px; padding:13px; color:white; font-size:15px; font-weight:700;
+    cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .cz-add-btn:disabled { opacity:0.4; cursor:not-allowed; }
+
   .toast { position:fixed; top:80px; left:50%; transform:translateX(-50%); background:var(--surface);
     border:1px solid var(--border); border-radius:12px; padding:10px 20px; font-size:14px; z-index:9999;
     display:none; gap:8px; align-items:center; white-space:nowrap; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
@@ -168,6 +210,23 @@
 <!-- CART OVERLAY -->
 <div class="cart-overlay" id="cart-overlay" onclick="closeCart()"></div>
 
+<!-- CUSTOMIZE SHEET (variants + modifiers) -->
+<div class="cz-overlay" id="cz-overlay" onclick="closeCustomize()"></div>
+<div class="cz-sheet" id="cz-sheet">
+  <div class="cz-hdr">
+    <div>
+      <div class="cz-title" id="cz-title">Customize</div>
+      <div class="cz-sub" id="cz-sub"></div>
+    </div>
+    <div class="cz-x" onclick="closeCustomize()">×</div>
+  </div>
+  <div class="cz-body" id="cz-body"></div>
+  <div class="cz-foot open" id="cz-foot">
+    <div class="cz-total-row"><span>Total</span><span class="cz-total-amt" id="cz-total">₹0</span></div>
+    <button class="cz-add-btn" id="cz-add-btn" onclick="confirmCustomize()">Add to Cart</button>
+  </div>
+</div>
+
 <!-- CART DRAWER -->
 <div class="cart-drawer" id="cart-drawer">
   <div class="cart-hdr">
@@ -204,8 +263,9 @@ const TOKEN   = params.get('k') || '';
 const GST_RATE = 0.05; // will be overridden from config
 
 let allMenu = [];
-let cart    = {}; // id → {item, qty}
+let cart    = {}; // cart_key → {item, qty, variant_id, modifier_ids, unit_price, display_name, base_name, category}
 let categories = [];
+let _czState = null;  // current customize-sheet state
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 async function init() {
@@ -239,7 +299,19 @@ async function init() {
     const d = await r.json();
     if (d.valid && d.orders) {
       d.orders.forEach(o => {
-        cart[o.id] = {item:{id:o.id,name:o.name,price:o.price}, qty:o.quantity};
+        // Server returns cart_key as `o.id` (e.g. "5||" or "5|2|7,12") for
+        // customised items. Falls back to legacy plain id for non-customised.
+        const key = o.id;
+        cart[key] = {
+          item: { id: o.menu_id || o.id, name: o.name, price: o.price, category: o.category },
+          qty: o.quantity,
+          variant_id: o.variant_id || null,
+          modifier_ids: o.modifier_ids || [],
+          unit_price: o.price,
+          display_name: o.name,
+          base_name: o.menu_name || o.name,
+          category: o.category || 'Other',
+        };
       });
       updateCartUI();
     }
@@ -296,19 +368,40 @@ function renderMenu(items) {
   Object.entries(grouped).forEach(([cat, catItems]) => {
     html += `<div class="cat-section"><div class="cat-title">${cat}</div><div class="menu-grid">`;
     catItems.forEach(item => {
-      const inCart = cart[item.id];
-      const qtyCtrl = inCart
-        ? `<div class="qty-ctrl">
-            <button class="qty-btn" onclick="updateQty('${item.id}',-1)">−</button>
-            <span class="qty-num">${inCart.qty}</span>
-            <button class="qty-btn" onclick="updateQty('${item.id}',1)">+</button>
-          </div>`
-        : `<button class="add-btn" onclick="addToCart('${item.id}')">+ Add</button>`;
+      // Total qty in cart for this base menu item, summed across customisations
+      const inCartQty = Object.values(cart).reduce((sum, c) =>
+        String(c.item.id) === String(item.id) ? sum + c.qty : sum, 0);
+
+      const hasOpts = !!item.has_options;
+
+      let actionHtml;
+      if (hasOpts) {
+        // Always go through the customize sheet so variant/modifier are picked
+        // each time. Show qty count next to button if anything is already in cart.
+        actionHtml = `<button class="add-btn" onclick="openCustomize('${item.id}')">
+          ${inCartQty > 0 ? '+ Add ('+inCartQty+')' : '+ Customize'}
+        </button>`;
+      } else if (inCartQty > 0) {
+        // Plain item with quantity → show − / qty / + control. We can safely use
+        // the simple cart_key for plain items (no variant, no mods).
+        const plainKey = `${item.id}||`;
+        actionHtml = `<div class="qty-ctrl">
+            <button class="qty-btn" onclick="updateQty('${plainKey}',-1)">−</button>
+            <span class="qty-num">${inCartQty}</span>
+            <button class="qty-btn" onclick="updateQty('${plainKey}',1)">+</button>
+          </div>`;
+      } else {
+        actionHtml = `<button class="add-btn" onclick="addPlainToCart('${item.id}')">+ Add</button>`;
+      }
 
       const unavailClass = item.available === false ? 'unavailable' : '';
       const imgHtml = item.image
         ? `<img class="item-img" src="${item.image}" alt="${item.name}" onerror="this.style.display='none'">`
         : `<div class="item-img-placeholder">${item.type==='nonveg'?'🍗':'🥗'}</div>`;
+
+      const priceLabel = hasOpts && item.variants && item.variants.length
+        ? `from ₹${Math.min(...item.variants.map(v=>v.price))}`
+        : `₹${item.price}`;
 
       html += `<div class="item-card ${unavailClass}">
         ${imgHtml}
@@ -319,8 +412,8 @@ function renderMenu(items) {
           </div>
           ${item.description ? `<div class="item-desc">${item.description}</div>` : ''}
           <div class="item-footer">
-            <div class="item-price">₹${item.price}</div>
-            ${item.available !== false ? qtyCtrl : '<span style="font-size:11px;color:var(--muted)">Unavailable</span>'}
+            <div class="item-price">${priceLabel}</div>
+            ${item.available !== false ? actionHtml : '<span style="font-size:11px;color:var(--muted)">Unavailable</span>'}
           </div>
         </div>
       </div>`;
@@ -331,11 +424,17 @@ function renderMenu(items) {
 }
 
 // ── CART ──────────────────────────────────────────────────────────────────
-function addToCart(id) {
+function addPlainToCart(id) {
   const item = allMenu.find(i => String(i.id) === String(id));
   if (!item) return;
-  if (cart[id]) cart[id].qty++;
-  else cart[id] = {item, qty:1};
+  const key = `${item.id}||`;
+  if (cart[key]) cart[key].qty++;
+  else cart[key] = {
+    item: {id:item.id, name:item.name, price:item.price, category:item.category},
+    qty: 1, variant_id: null, modifier_ids: [],
+    unit_price: item.price, display_name: item.name,
+    base_name: item.name, category: item.category || 'Other',
+  };
   updateCartUI();
   renderMenu(allMenu.filter(i => {
     const search = document.getElementById('search-inp').value.toLowerCase();
@@ -344,10 +443,203 @@ function addToCart(id) {
   showToast(`${item.name} added!`, 'success');
 }
 
-function updateQty(id, delta) {
-  if (!cart[id]) return;
-  cart[id].qty += delta;
-  if (cart[id].qty <= 0) delete cart[id];
+// Backward-compat shim: if anything still calls `addToCart(id)` it now opens
+// the customize sheet for items with options (or adds plain otherwise).
+function addToCart(id) {
+  const item = allMenu.find(i => String(i.id) === String(id));
+  if (!item) return;
+  if (item.has_options) openCustomize(id);
+  else addPlainToCart(id);
+}
+
+// ── CUSTOMIZE SHEET ───────────────────────────────────────────────────────
+function openCustomize(id) {
+  const item = allMenu.find(i => String(i.id) === String(id));
+  if (!item) return;
+  // Pre-select default variant + default modifiers
+  const variants = item.variants || [];
+  const groups   = item.modifier_groups || [];
+  const defVar   = variants.find(v => v.is_default && v.available !== false)
+                || variants.find(v => v.available !== false)
+                || null;
+
+  const selectedMods = {}; // group_id → Set<modifier_id>
+  groups.forEach(g => {
+    const sel = new Set();
+    g.modifiers.forEach(m => {
+      if (m.is_default && m.available !== false && sel.size < (g.max_select || 1)) sel.add(m.id);
+    });
+    selectedMods[g.id] = sel;
+  });
+
+  _czState = {
+    item, variants, groups,
+    variant_id: defVar ? defVar.id : null,
+    selectedMods,
+  };
+
+  document.getElementById('cz-title').textContent = item.name;
+  document.getElementById('cz-sub').textContent =
+    (variants.length ? variants.length + ' size' + (variants.length>1?'s':'') : '')
+    + (variants.length && groups.length ? ' · ' : '')
+    + (groups.length ? groups.length + ' add-on group' + (groups.length>1?'s':'') : '');
+
+  renderCustomize();
+  document.getElementById('cz-overlay').classList.add('open');
+  document.getElementById('cz-sheet').classList.add('open');
+}
+
+function closeCustomize() {
+  document.getElementById('cz-overlay').classList.remove('open');
+  document.getElementById('cz-sheet').classList.remove('open');
+  _czState = null;
+}
+
+function renderCustomize() {
+  if (!_czState) return;
+  const { variants, groups, variant_id, selectedMods } = _czState;
+  let html = '';
+  if (variants.length) {
+    html += `<div class="cz-group">
+      <div class="cz-group-name">Choose size <span class="cz-req">Required</span></div>
+      <div class="cz-rule">Pick one</div>`;
+    variants.forEach(v => {
+      const dis = v.available === false ? 'disabled' : '';
+      const sel = v.id === variant_id ? 'selected' : '';
+      html += `<div class="cz-opt-row ${sel} ${dis}" onclick="${dis ? '' : `selectVariant(${v.id})`}">
+        <div class="cz-opt-name">${v.name}</div>
+        <div class="cz-opt-price">₹${v.price}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  groups.forEach(g => {
+    const sel = selectedMods[g.id];
+    const reqHtml = g.required ? '<span class="cz-req">Required</span>' : '';
+    const ruleTxt = g.max_select === 1
+      ? 'Pick one' + (g.required ? '' : ' (optional)')
+      : `Pick up to ${g.max_select}` + (g.min_select > 0 ? ` · min ${g.min_select}` : '');
+    html += `<div class="cz-group">
+      <div class="cz-group-name">${g.name} ${reqHtml}</div>
+      <div class="cz-rule">${ruleTxt}</div>`;
+    g.modifiers.forEach(m => {
+      const dis = m.available === false ? 'disabled' : '';
+      const isSel = sel.has(m.id) ? 'selected' : '';
+      const onclick = dis ? '' : `toggleModifier(${g.id},${m.id})`;
+      const priceTxt = m.price > 0 ? `+₹${m.price}` : (m.price < 0 ? `-₹${-m.price}` : 'Free');
+      html += `<div class="cz-opt-row ${isSel} ${dis}" onclick="${onclick}">
+        <div class="cz-opt-name">${m.name}</div>
+        <div class="cz-opt-price">${priceTxt}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  document.getElementById('cz-body').innerHTML = html;
+  updateCustomizeTotal();
+}
+
+function selectVariant(vid) {
+  if (!_czState) return;
+  _czState.variant_id = vid;
+  renderCustomize();
+}
+
+function toggleModifier(gid, mid) {
+  if (!_czState) return;
+  const group = _czState.groups.find(g => g.id === gid);
+  if (!group) return;
+  const sel = _czState.selectedMods[gid];
+  if (sel.has(mid)) {
+    sel.delete(mid);
+  } else {
+    if (group.max_select === 1) {
+      // single-choice → replace
+      sel.clear();
+      sel.add(mid);
+    } else if (sel.size < (group.max_select || 1)) {
+      sel.add(mid);
+    } else {
+      showToast(`Max ${group.max_select} selections in ${group.name}`, 'error');
+      return;
+    }
+  }
+  renderCustomize();
+}
+
+function _customizeUnitPrice() {
+  if (!_czState) return 0;
+  const { item, variants, variant_id, groups, selectedMods } = _czState;
+  let p = item.price || 0;
+  if (variant_id) {
+    const v = variants.find(x => x.id === variant_id);
+    if (v) p = v.price;
+  }
+  groups.forEach(g => {
+    selectedMods[g.id].forEach(mid => {
+      const m = g.modifiers.find(x => x.id === mid);
+      if (m) p += m.price || 0;
+    });
+  });
+  return p;
+}
+
+function updateCustomizeTotal() {
+  if (!_czState) return;
+  document.getElementById('cz-total').textContent = '₹' + _customizeUnitPrice().toFixed(0);
+  // Validate min_select
+  const valid = _czState.groups.every(g => _czState.selectedMods[g.id].size >= (g.min_select || 0))
+    && (!_czState.variants.length || _czState.variant_id != null);
+  document.getElementById('cz-add-btn').disabled = !valid;
+}
+
+function confirmCustomize() {
+  if (!_czState) return;
+  const { item, variant_id, groups, selectedMods } = _czState;
+  const modIds = [];
+  groups.forEach(g => selectedMods[g.id].forEach(mid => modIds.push(mid)));
+  modIds.sort((a,b) => a - b);
+
+  const cartKey = `${item.id}|${variant_id || ''}|${modIds.join(',')}`;
+  const unitPrice = _customizeUnitPrice();
+
+  // Build display name to mirror what the server will produce
+  const parts = [item.name];
+  if (variant_id) {
+    const v = (item.variants || []).find(x => x.id === variant_id);
+    if (v) parts.push(`(${v.name})`);
+  }
+  const modNames = [];
+  groups.forEach(g => selectedMods[g.id].forEach(mid => {
+    const m = g.modifiers.find(x => x.id === mid);
+    if (m) modNames.push(m.name);
+  }));
+  if (modNames.length) parts.push('+ ' + modNames.join(', '));
+  const displayName = parts.join(' ');
+
+  if (cart[cartKey]) {
+    cart[cartKey].qty++;
+  } else {
+    cart[cartKey] = {
+      item: {id: item.id, name: item.name, price: unitPrice, category: item.category},
+      qty: 1,
+      variant_id: variant_id,
+      modifier_ids: modIds,
+      unit_price: unitPrice,
+      display_name: displayName,
+      base_name: item.name,
+      category: item.category || 'Other',
+    };
+  }
+  updateCartUI();
+  closeCustomize();
+  showToast(`${displayName} added!`, 'success');
+  renderMenu(allMenu);
+}
+
+function updateQty(key, delta) {
+  if (!cart[key]) return;
+  cart[key].qty += delta;
+  if (cart[key].qty <= 0) delete cart[key];
   updateCartUI();
   renderMenu(allMenu);
 }
@@ -363,23 +655,23 @@ function updateCartUI() {
   if (!totalItems) {
     listEl.innerHTML = '<div class="empty-state" style="padding:30px"><div class="empty-icon">🛒</div><p>Cart is empty</p></div>';
   } else {
-    listEl.innerHTML = Object.values(cart).map(c =>
+    listEl.innerHTML = Object.entries(cart).map(([key, c]) =>
       `<div class="cart-item">
-        <div><div class="ci-name">${c.item.name}</div><div class="ci-price">₹${c.item.price} each</div></div>
+        <div><div class="ci-name">${c.display_name || c.item.name}</div><div class="ci-price">₹${c.unit_price || c.item.price} each</div></div>
         <div class="ci-right">
           <div class="qty-ctrl">
-            <button class="qty-btn" onclick="updateQty('${c.item.id}',-1)">−</button>
+            <button class="qty-btn" onclick="updateQty('${key}',-1)">−</button>
             <span class="qty-num">${c.qty}</span>
-            <button class="qty-btn" onclick="updateQty('${c.item.id}',1)">+</button>
+            <button class="qty-btn" onclick="updateQty('${key}',1)">+</button>
           </div>
-          <div class="ci-total">₹${(c.item.price * c.qty).toFixed(0)}</div>
+          <div class="ci-total">₹${((c.unit_price || c.item.price) * c.qty).toFixed(0)}</div>
         </div>
       </div>`
     ).join('');
   }
 
   // Totals
-  const sub  = Object.values(cart).reduce((s,c) => s + c.item.price * c.qty, 0);
+  const sub  = Object.values(cart).reduce((s,c) => s + (c.unit_price || c.item.price) * c.qty, 0);
   const gst  = Math.round(sub * GST_RATE);
   const total = sub + gst;
   document.getElementById('ct-sub').textContent   = '₹' + sub.toFixed(0);
@@ -403,7 +695,14 @@ async function placeOrder() {
   btn.disabled = true; btn.textContent = 'Sending...';
 
   const items = Object.values(cart).map(c => ({
-    id: c.item.id, name: c.item.name, price: c.item.price, qty: c.qty, category: c.item.category || 'Other'
+    id: String(c.item.id),
+    name: c.base_name || c.item.name,
+    price: c.unit_price || c.item.price,
+    qty: c.qty,
+    category: c.category || c.item.category || 'Other',
+    variant_id: c.variant_id || null,
+    modifier_ids: c.modifier_ids || [],
+    display_name: c.display_name || c.item.name,
   }));
 
   try {
