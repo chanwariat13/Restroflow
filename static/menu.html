@@ -16,8 +16,15 @@
   .header { background:var(--surface); border-bottom:1px solid var(--border);
     padding:16px 20px; position:sticky; top:0; z-index:100; }
   .header-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .header-brand { display:flex; align-items:center; gap:10px; min-width:0; }
+  .header-brand img { flex:0 0 auto; }
   .restro-name { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; color:var(--accent); }
   .table-info { font-size:13px; color:var(--muted); }
+  /* Optional welcome strip — hidden automatically when the tenant has not
+     configured a welcome message (the template substitution leaves the div
+     empty in that case). */
+  .welcome-strip { font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.4; }
+  .welcome-strip:empty { display:none; margin:0; }
   .cart-btn { background:linear-gradient(135deg,var(--accent),#ff8c5a); border:none; border-radius:12px;
     padding:10px 18px; color:white; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif;
     display:flex; align-items:center; gap:6px; }
@@ -184,14 +191,18 @@
   <!-- HEADER -->
   <div class="header">
     <div class="header-top">
-      <div>
-        <div class="restro-name" id="restro-name">__RESTRO_NAME__</div>
-        <div class="table-info" id="table-info"></div>
+      <div class="header-brand">
+        __LOGO_HTML__
+        <div>
+          <div class="restro-name" id="restro-name">__RESTRO_NAME__</div>
+          <div class="table-info" id="table-info"></div>
+        </div>
       </div>
       <button class="cart-btn" onclick="openCart()">
         🛒 Cart <span class="cart-count" id="cart-count">0</span>
       </button>
     </div>
+    <div class="welcome-strip">__WELCOME__</div>
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
       <input class="search-inp" id="search-inp" placeholder="Search menu..." oninput="filterMenu()">

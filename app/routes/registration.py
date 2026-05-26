@@ -1,7 +1,6 @@
 """
 routes/registration.py - POST /webhook/{slug}/register
 """
-import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Path
@@ -33,7 +32,11 @@ async def register(req: RegisterRequest, slug: str = Path(...)):
         return JSONResponse({"success": False, "error": "Invalid phone number"})
     if not name or len(name) < 2:
         return JSONResponse({"success": False, "error": "Invalid name"})
-    if not re.match(r"^T\d{1,2}$", table):
+    # Validate against the actual configured tables for this tenant. The
+    # previous regex hardcoded the prefix "T" and a 1–2 digit number, which
+    # rejected every QR scan for any client whose table_prefix was not "T"
+    # (e.g. "R", "B1") or whose table_count exceeded 99.
+    if table not in set(cfg.get_table_names()):
         return JSONResponse({"success": False, "error": "Invalid table"})
 
     expected = cfg.table_secrets.get(table)
