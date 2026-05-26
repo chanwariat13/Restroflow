@@ -305,22 +305,52 @@ function logout() {
   window.location.href = '/login';
 }
 
-// Auto-login from the unified /login page (sessionStorage-cached creds).
-// Falls back silently to the inline login form if no creds are stashed.
-(function bootstrapStaffAuth(){
+// ── Require unified login (matches HotelFlow's /hotel/{slug} behaviour) ──
+// Manager/Kitchen/Waiter (and Owner using staff creds) all log in via
+// /login. If we don't have cached creds, jump there immediately. The
+// inline form below is only kept around for failure-recovery flows.
+(function requireStaffAuth() {
+  let slug = '', phone = '', pin = '';
   try {
-    const slug  = sessionStorage.getItem('rf_staff_slug');
-    const phone = sessionStorage.getItem('rf_staff_phone');
-    const pin   = sessionStorage.getItem('rf_staff_pin');
-    if (!slug || !phone || !pin) return;
-    const sIn = document.getElementById('l-slug');
-    const phIn = document.getElementById('l-phone');
-    const piIn = document.getElementById('l-pin');
-    if (sIn)  sIn.value  = slug;
-    if (phIn) phIn.value = phone;
-    if (piIn) piIn.value = pin;
-    setTimeout(() => { try { login(); } catch(e) {} }, 0);
-  } catch(e) {}
+    slug  = sessionStorage.getItem('rf_staff_slug')  || '';
+    phone = sessionStorage.getItem('rf_staff_phone') || '';
+    pin   = sessionStorage.getItem('rf_staff_pin')   || '';
+  } catch (e) {}
+
+  const slugFromUrl = window.location.pathname.split('/')[2] || '';
+  function gotoLogin() {
+    // We don't know which staff role the user is, so don't pre-pick one.
+    const qs = '?tab=restro' + (slugFromUrl ? '&slug=' + encodeURIComponent(slugFromUrl) : '');
+    window.location.replace('/login' + qs);
+  }
+
+  if (!slug || !phone || !pin) { gotoLogin(); return; }
+
+  // Hide inline form so redirect-on-failure doesn't flash it.
+  const screen = document.getElementById('login');
+  if (screen) screen.style.visibility = 'hidden';
+
+  const sIn  = document.getElementById('l-slug');
+  const phIn = document.getElementById('l-phone');
+  const piIn = document.getElementById('l-pin');
+  if (sIn)  sIn.value  = slug;
+  if (phIn) phIn.value = phone;
+  if (piIn) piIn.value = pin;
+
+  setTimeout(() => { try { login(); } catch (e) {} }, 0);
+
+  // Watchdog: stale cached creds → clear and bounce to /login.
+  setTimeout(() => {
+    const app = document.getElementById('app');
+    if (!app || app.style.display !== 'block') {
+      try {
+        sessionStorage.removeItem('rf_staff_slug');
+        sessionStorage.removeItem('rf_staff_phone');
+        sessionStorage.removeItem('rf_staff_pin');
+      } catch (e) {}
+      gotoLogin();
+    }
+  }, 2500);
 })();
 
 // ── TABS ─────────────────────────────────────────────────────────────────

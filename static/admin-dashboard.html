@@ -624,19 +624,41 @@ function logout() {
   window.location.href = '/login';
 }
 
-// ── Auto-login from /login ───────────────────────────────────────────────
-// If the unified login page just stashed an admin secret in sessionStorage,
-// pre-fill it and call login() so the user doesn't see two login screens
-// in a row. The inline login still works for direct /admin navigation.
-(function bootstrapAdminAuth(){
-  try {
-    const cached = sessionStorage.getItem('rf_admin_secret');
-    if (!cached) return;
-    const inp = document.getElementById('admin-secret');
-    if (inp) inp.value = cached;
-    // Wait one tick so the rest of the script (login()) is defined.
-    setTimeout(() => { try { login(); } catch(e) {} }, 0);
-  } catch(e) {}
+// ── Require unified login (matches HotelFlow's /admin behaviour) ──────────
+// If we don't already have an admin secret cached from /login, redirect
+// straight there — the inline form on this page is never shown to users.
+// If we DO have a secret but it turns out to be wrong (login() leaves the
+// login screen visible), clear it and bounce back to /login.
+(function requireAdminAuth() {
+  let cached = '';
+  try { cached = sessionStorage.getItem('rf_admin_secret') || ''; } catch (e) {}
+
+  if (!cached) {
+    window.location.replace('/login');
+    return;
+  }
+
+  // Hide the inline form so the redirect-on-failure case doesn't flash it.
+  const screen = document.getElementById('login-screen');
+  if (screen) screen.style.visibility = 'hidden';
+
+  const inp = document.getElementById('admin-secret');
+  if (inp) inp.value = cached;
+
+  setTimeout(() => {
+    try { login(); } catch (e) {}
+  }, 0);
+
+  // Watchdog: if login() didn't succeed within a couple of seconds the
+  // dashboard is still hidden — assume the cached secret is stale and
+  // send the user to /login to type a fresh one.
+  setTimeout(() => {
+    const dash = document.getElementById('dashboard');
+    if (!dash || dash.style.display !== 'block') {
+      try { sessionStorage.removeItem('rf_admin_secret'); } catch (e) {}
+      window.location.replace('/login');
+    }
+  }, 2500);
 })();
 
 /* ═══════════════════════ NAVIGATION ═══════════════════════ */
