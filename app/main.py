@@ -28,6 +28,7 @@ from app.routes.admin             import router as admin_router
 from app.routes.client_dashboard  import router as client_router
 from app.routes.staff_dashboard   import router as staff_router
 from app.routes.customer_pages    import router as pages_router
+from app.routes.kds               import router as kds_router
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ app.include_router(admin_router)
 app.include_router(client_router)
 app.include_router(staff_router)
 app.include_router(pages_router)
+app.include_router(kds_router)
 
 # Static files
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")

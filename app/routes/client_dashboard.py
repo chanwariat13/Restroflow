@@ -3,7 +3,7 @@ routes/client_dashboard.py
 API endpoints for the client (restaurant owner) dashboard.
 Login with slug + dashboard_password → see only their own data.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
@@ -580,3 +580,143 @@ async def client_delete_modifier(slug: str, modifier_id: int,
                     {"id": modifier_id})
         db.commit()
     return JSONResponse({"success": True})
+
+
+
+
+# ── Tally export ──────────────────────────────────────────────────
+# Indian restaurant owners book all sales into Tally (Prime / ERP 9).
+# This endpoint produces ready-to-import artefacts:
+#   format=csv → flat CSV for Excel + manual journal entry
+#   format=xml → Tally Day Book voucher XML; upload via Tally Gateway
+#                → Import Data → Vouchers
+# Every Sales Voucher includes the right ledger postings (CGST/SGST/IGST
+# split, payment ledger, GSTIN if B2B).
+@router.get("/api/client/{slug}/tally/export")
+async def tally_export(
+    slug: str,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    format: str = "xml",
+    include_unpaid: bool = False,
+    x_client_password: str = Header(...),
+):
+    from fastapi.responses import Response
+    from app.services.tally import (
+        build_orders_csv, build_tally_xml, fetch_orders_for_export,
+    )
+    from app.utils.audit import audit
+
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+
+    # Default range: previous month start → previous month end.
+    today = datetime.now(IST).date()
+    if not from_date or not to_date:
+        first_of_this = today.replace(day=1)
+        last_of_prev = first_of_this - timedelta(days=1)
+        first_of_prev = last_of_prev.replace(day=1)
+        from_date = from_date or first_of_prev.isoformat()
+        to_date = to_date or last_of_prev.isoformat()
+
+    fmt = (format or "xml").strip().lower()
+    if fmt not in ("xml", "csv"):
+        raise HTTPException(400, "format must be 'xml' or 'csv'")
+
+    orders = fetch_orders_for_export(
+        cfg, from_date=from_date, to_date=to_date,
+        include_unpaid=bool(include_unpaid),
+    )
+
+    audit(
+        "tally.export",
+        actor="owner", actor_role="owner",
+        slug=slug, target=fmt,
+        payload={"from": from_date, "to": to_date,
+                 "format": fmt, "rows": len(orders),
+                 "include_unpaid": bool(include_unpaid)},
+    )
+
+    fname = f"tally-{slug}-{from_date}-to-{to_date}.{fmt}"
+    if fmt == "csv":
+        body = build_orders_csv(orders, cfg)
+        return Response(
+            content=body,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{fname}"',
+                "X-Row-Count": str(len(orders)),
+            },
+        )
+    body = build_tally_xml(orders, cfg)
+    return Response(
+        content=body,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Row-Count": str(len(orders)),
+        },
+    )
+
+
+@router.get("/api/client/{slug}/tally/preview")
+async def tally_preview(
+    slug: str,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    include_unpaid: bool = False,
+    x_client_password: str = Header(...),
+):
+    """JSON preview so the dashboard can show an "X orders, ₹Y total" summary
+    before the owner clicks 'Download'."""
+    from app.services.tally import fetch_orders_for_export
+
+    _auth_client(slug, x_client_password)
+    cfg = load_tenant(slug)
+
+    today = datetime.now(IST).date()
+    if not from_date or not to_date:
+        from datetime import timedelta as _td
+        first_of_this = today.replace(day=1)
+        last_of_prev = first_of_this - _td(days=1)
+        first_of_prev = last_of_prev.replace(day=1)
+        from_date = from_date or first_of_prev.isoformat()
+        to_date = to_date or last_of_prev.isoformat()
+
+    orders = fetch_orders_for_export(
+        cfg, from_date=from_date, to_date=to_date,
+        include_unpaid=bool(include_unpaid),
+    )
+    total = sum(float(o.get("total") or 0) for o in orders)
+    cgst = sum(float(o.get("cgst_amount") or 0) for o in orders)
+    sgst = sum(float(o.get("sgst_amount") or 0) for o in orders)
+    igst = sum(float(o.get("igst_amount") or 0) for o in orders)
+    return JSONResponse({
+        "from": from_date, "to": to_date,
+        "row_count": len(orders),
+        "total":   round(total, 2),
+        "cgst":    round(cgst, 2),
+        "sgst":    round(sgst, 2),
+        "igst":    round(igst, 2),
+        "tax":     round(cgst + sgst + igst, 2),
+        "by_payment": _summarize_by_payment(orders),
+        "sample":  [
+            {
+                "voucher": o.get("order_id"),
+                "date": o.get("date_only"),
+                "customer": o.get("customer_name"),
+                "table": o.get("table_name"),
+                "total": float(o.get("total") or 0),
+            } for o in orders[:5]
+        ],
+    })
+
+
+def _summarize_by_payment(orders) -> dict:
+    out: dict = {}
+    for o in orders:
+        pm = (o.get("payment_method") or "Other").strip().title() or "Other"
+        out.setdefault(pm, {"count": 0, "total": 0.0})
+        out[pm]["count"] += 1
+        out[pm]["total"] = round(out[pm]["total"] + float(o.get("total") or 0), 2)
+    return out
