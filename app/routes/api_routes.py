@@ -627,18 +627,38 @@ async def _process_razorpay(cfg: TenantConfig, body: dict):
         f"👤 {name} | 🪑 {table}\n💰 ₹{total:.0f} via {method}\n\n"
         f"🍳 Order being prepared!\n\n*8* - 👋 Checkout | *7* - 🔔 Waiter | *5* - 💵 Bill")
     await wa.notify_payment(cfg, phone, name, table, order_id, total, method)
-    await wa.send_to_kitchen(cfg,
+    await wa.send_kitchen(cfg,
         f"🔥 *NEW ORDER (PAID)*\n🪑 {table} | 👤 {name}\n\n"
         + "\n".join(f"  • {o['quantity']}x {o['name']}" for o in orders)
         + f"\n\n✅ ₹{total:.0f} paid\n*{table}* confirm | *DONE {table}* when ready")
 
+    # Deduct inventory directly (no internal HTTP self-call). The previous
+    # implementation POSTed back to localhost:8000, which broke whenever the
+    # service ran on a non-default port or behind a reverse proxy.
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(f"http://localhost:8000/webhook/{cfg.slug}/deduct-inventory",
-                              json={"items": [{"name": o.get("menu_name") or o["name"],
-                                                "quantity": o["quantity"]} for o in orders]})
-    except Exception:
-        pass
+        with cfg.db_session() as db:
+            for o in orders:
+                qty = int(o["quantity"])
+                base_name = o.get("menu_name") or o["name"]
+                db.execute(text("""
+                    UPDATE inventory inv
+                    SET current_stock = inv.current_stock - (mi.quantity_used * :qty),
+                        updated_at = NOW()
+                    FROM menu_ingredients mi
+                    WHERE mi.menu_item = :item_name
+                      AND mi.ingredient = inv.item_name
+                      AND inv.current_stock >= (mi.quantity_used * :qty)
+                """), {"qty": qty, "item_name": base_name})
+            db.commit()
+            low = db.execute(text(
+                "SELECT item_name, current_stock, min_threshold, unit "
+                "FROM inventory WHERE current_stock <= min_threshold "
+                "ORDER BY (current_stock-min_threshold) ASC"
+            )).fetchall()
+        if low:
+            await wa.notify_low_stock(cfg, [dict(r._mapping) for r in low])
+    except Exception as e:
+        logger.warning("inventory deduction after razorpay failed: %s", e)
 
 
 

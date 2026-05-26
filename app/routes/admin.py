@@ -346,34 +346,62 @@ async def import_menu(slug: str, request: Request, x_admin_secret: str = Header(
 
     cfg = load_tenant(slug)
     inserted = 0
+    skipped = 0
+    errors: list[str] = []
 
     with cfg.db_session() as db:
-        # Clear existing menu
-        db.execute(text("DELETE FROM menu"))
-        for row in rows:
-            try:
-                price = float(row.get("Price", 0) or 0)
-                if price <= 0:
-                    continue
+        try:
+            # Stage all rows first; only DELETE the existing menu after we've
+            # successfully validated and prepared every row. Previously a bad
+            # row mid-CSV would leave the menu wiped (DELETE already ran) and
+            # only the rows up to the bad one inserted.
+            staged: list[dict] = []
+            for idx, row in enumerate(rows, start=2):  # +2 = header + 1-indexed
+                try:
+                    price = float(row.get("Price", 0) or 0)
+                    name = (row.get("Name") or "").strip()
+                    if price <= 0 or not name:
+                        skipped += 1
+                        continue
+                    staged.append({
+                        "name":  name,
+                        "cat":   (row.get("Category") or "Other").strip(),
+                        "price": price,
+                        "avail": (row.get("Available") or "Yes").strip(),
+                        "type":  (row.get("Type") or "veg").strip().lower(),
+                        "desc":  (row.get("Description") or "").strip(),
+                        "img":   (row.get("Image") or "").strip(),
+                        "best":  (row.get("Bestseller") or "no").strip().lower(),
+                    })
+                except Exception as e:
+                    errors.append(f"row {idx}: {e}")
+
+            if not staged:
+                raise HTTPException(status_code=400,
+                                    detail=f"No valid rows in CSV. Errors: {errors[:5]}")
+
+            db.execute(text("DELETE FROM menu"))
+            for s in staged:
                 db.execute(text("""
                     INSERT INTO menu (name, category, price, available, type, description, image, bestseller)
                     VALUES (:name, :cat, :price, :avail, :type, :desc, :img, :best)
-                """), {
-                    "name":  row.get("Name", "").strip(),
-                    "cat":   row.get("Category", "Other").strip(),
-                    "price": price,
-                    "avail": row.get("Available", "Yes").strip(),
-                    "type":  row.get("Type", "veg").strip().lower(),
-                    "desc":  row.get("Description", "").strip(),
-                    "img":   row.get("Image", "").strip(),
-                    "best":  row.get("Bestseller", "no").strip().lower(),
-                })
+                """), s)
                 inserted += 1
-            except Exception:
-                continue
-        db.commit()
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception:
+            db.rollback()
+            raise
 
-    return JSONResponse({"success": True, "message": f"Imported {inserted} menu items", "count": inserted})
+    return JSONResponse({
+        "success": True,
+        "message": f"Imported {inserted} menu items (skipped {skipped})",
+        "count": inserted,
+        "skipped": skipped,
+        "errors": errors[:10],
+    })
 
 
 # ── Admin: Full Menu Management for any client ────────────────────────────────
