@@ -52,31 +52,52 @@ if _ADMIN_SECRET in _BANNED_ADMIN_SECRETS or len(_ADMIN_SECRET) < 16:
         "starting RestroFlow."
     )
 
-# ── Refuse to start without a WhatsApp webhook token ─────────────────────────
+# ── WhatsApp inbound webhook gating ──────────────────────────────────────────
 # routes/whatsapp_bot.py historically logged-and-allowed when
 # WHATSAPP_WEBHOOK_TOKEN was unset. Anyone who learnt a tenant slug could
 # then POST a forged "messages.upsert" body to /webhook/{slug}/whatsapp from
 # a phone matching the staff WhatsApp number and drive APPROVE / CASH
-# RECEIVED / FREE / BLOCK from the outside. We now require the token at
-# boot, matching the ADMIN_SECRET guard above. Operators that haven't yet
-# configured Evolution to send the matching header can opt OUT explicitly
-# by setting `WHATSAPP_WEBHOOK_AUTH_OPTOUT=1` (intended ONLY for short-
-# lived migrations; the route still logs a critical line on every hit).
+# RECEIVED / FREE / BLOCK from the outside.
+#
+# Earlier revisions of this file made the missing-token case *fatal* — the
+# process refused to boot at all. That broke every deployment that hadn't
+# yet wired up Evolution API (e.g. dashboards-only / KDS-only rollouts), so
+# we now degrade gracefully instead:
+#
+#   * `WHATSAPP_WEBHOOK_TOKEN` set                → webhook is registered;
+#       inbound auth enforced (constant-time header compare).
+#   * `WHATSAPP_WEBHOOK_AUTH_OPTOUT=1` set        → webhook is registered;
+#       every hit is logged at WARNING and accepted (short migration window).
+#   * Neither set                                 → webhook is NOT registered;
+#       a loud warning is logged at boot and `/health` reports the state.
+#       Rest of the app (dashboards, KDS, customer pages, registration,
+#       admin API, scheduled jobs, outbound WhatsApp sends) keeps working.
+#
+# Net effect: an operator who hasn't configured Evolution API can still
+# deploy and use everything else, and there is no path through which a
+# forged messages.upsert payload can reach `_handle_message` — because the
+# route doesn't exist at all in that mode.
 _WA_WEBHOOK_TOKEN = (os.getenv("WHATSAPP_WEBHOOK_TOKEN") or "").strip()
 _WA_WEBHOOK_OPTOUT = (os.getenv("WHATSAPP_WEBHOOK_AUTH_OPTOUT") or "").strip() in {"1", "true", "yes"}
-if not _WA_WEBHOOK_TOKEN and not _WA_WEBHOOK_OPTOUT:
-    logger.critical(
-        "WHATSAPP_WEBHOOK_TOKEN is not set. The WhatsApp inbound webhook "
-        "would otherwise accept forged messages.upsert payloads from "
-        "anyone. Refusing to start. Configure Evolution API to send a "
-        "shared `apikey` header (or use WHATSAPP_WEBHOOK_HEADER to pick "
-        "another), set WHATSAPP_WEBHOOK_TOKEN to the matching value, and "
-        "restart. For a short migration window only, set "
-        "WHATSAPP_WEBHOOK_AUTH_OPTOUT=1."
+WHATSAPP_WEBHOOK_ENABLED = bool(_WA_WEBHOOK_TOKEN) or _WA_WEBHOOK_OPTOUT
+if not WHATSAPP_WEBHOOK_ENABLED:
+    logger.warning(
+        "WHATSAPP_WEBHOOK_TOKEN is not set — the inbound WhatsApp webhook "
+        "(/webhook/{slug}/whatsapp) is DISABLED. Inbound WhatsApp commands "
+        "(APPROVE/CASH RECEIVED/BLOCK/etc.) will not work. Set "
+        "WHATSAPP_WEBHOOK_TOKEN to a strong shared secret matching the "
+        "Evolution API `apikey` header to enable it. The rest of RestroFlow "
+        "(dashboards, KDS, customer pages, scheduled jobs, outbound WhatsApp) "
+        "is unaffected. For an explicit short migration window, set "
+        "WHATSAPP_WEBHOOK_AUTH_OPTOUT=1 instead — that registers the route "
+        "but accepts every hit (logged at WARNING)."
     )
-    raise SystemExit(
-        "WHATSAPP_WEBHOOK_TOKEN must be set (or WHATSAPP_WEBHOOK_AUTH_OPTOUT=1 "
-        "for a short migration window) before starting RestroFlow."
+elif not _WA_WEBHOOK_TOKEN and _WA_WEBHOOK_OPTOUT:
+    logger.warning(
+        "WHATSAPP_WEBHOOK_AUTH_OPTOUT=1 — inbound WhatsApp webhook will "
+        "accept ALL requests without authentication. This is a short "
+        "migration mode only. Set WHATSAPP_WEBHOOK_TOKEN and remove the "
+        "opt-out as soon as Evolution API is configured."
     )
 
 
@@ -111,7 +132,13 @@ app.add_middleware(
 )
 
 # All routes
-app.include_router(bot_router)
+# bot_router exposes /webhook/{slug}/whatsapp. We only register it when
+# WhatsApp inbound is enabled (see WHATSAPP_WEBHOOK_ENABLED above) — that
+# way the missing-token case isn't just rejected with 401, it returns 404
+# from FastAPI's normal not-found handler, leaking nothing about the
+# tenant's existence.
+if WHATSAPP_WEBHOOK_ENABLED:
+    app.include_router(bot_router)
 app.include_router(reg_router)
 app.include_router(api_router)
 app.include_router(admin_router)
@@ -133,7 +160,20 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "product": "RestroFlow", "version": "2.0.0"}
+    # Surface WhatsApp inbound state so operators can confirm whether the
+    # /webhook/{slug}/whatsapp route is wired up without grepping logs.
+    if _WA_WEBHOOK_TOKEN:
+        wa_inbound = "enabled"
+    elif _WA_WEBHOOK_OPTOUT:
+        wa_inbound = "auth-optout"
+    else:
+        wa_inbound = "disabled"
+    return {
+        "status": "ok",
+        "product": "RestroFlow",
+        "version": "2.0.0",
+        "whatsapp_inbound": wa_inbound,
+    }
 
 @app.get("/admin")
 async def admin_page():
