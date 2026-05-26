@@ -52,6 +52,33 @@ if _ADMIN_SECRET in _BANNED_ADMIN_SECRETS or len(_ADMIN_SECRET) < 16:
         "starting RestroFlow."
     )
 
+# ── Refuse to start without a WhatsApp webhook token ─────────────────────────
+# routes/whatsapp_bot.py historically logged-and-allowed when
+# WHATSAPP_WEBHOOK_TOKEN was unset. Anyone who learnt a tenant slug could
+# then POST a forged "messages.upsert" body to /webhook/{slug}/whatsapp from
+# a phone matching the staff WhatsApp number and drive APPROVE / CASH
+# RECEIVED / FREE / BLOCK from the outside. We now require the token at
+# boot, matching the ADMIN_SECRET guard above. Operators that haven't yet
+# configured Evolution to send the matching header can opt OUT explicitly
+# by setting `WHATSAPP_WEBHOOK_AUTH_OPTOUT=1` (intended ONLY for short-
+# lived migrations; the route still logs a critical line on every hit).
+_WA_WEBHOOK_TOKEN = (os.getenv("WHATSAPP_WEBHOOK_TOKEN") or "").strip()
+_WA_WEBHOOK_OPTOUT = (os.getenv("WHATSAPP_WEBHOOK_AUTH_OPTOUT") or "").strip() in {"1", "true", "yes"}
+if not _WA_WEBHOOK_TOKEN and not _WA_WEBHOOK_OPTOUT:
+    logger.critical(
+        "WHATSAPP_WEBHOOK_TOKEN is not set. The WhatsApp inbound webhook "
+        "would otherwise accept forged messages.upsert payloads from "
+        "anyone. Refusing to start. Configure Evolution API to send a "
+        "shared `apikey` header (or use WHATSAPP_WEBHOOK_HEADER to pick "
+        "another), set WHATSAPP_WEBHOOK_TOKEN to the matching value, and "
+        "restart. For a short migration window only, set "
+        "WHATSAPP_WEBHOOK_AUTH_OPTOUT=1."
+    )
+    raise SystemExit(
+        "WHATSAPP_WEBHOOK_TOKEN must be set (or WHATSAPP_WEBHOOK_AUTH_OPTOUT=1 "
+        "for a short migration window) before starting RestroFlow."
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

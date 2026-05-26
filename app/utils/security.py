@@ -120,3 +120,16 @@ def needs_rehash(stored: str) -> bool:
     except (IndexError, ValueError):
         return True
     return iterations < PBKDF2_ITERATIONS
+
+
+
+# ── Owner dashboard password (alias) ────────────────────────────────────────
+# `Client.dashboard_password` historically stored the owner's login password
+# in plain text on the master DB. Same threat model as staff PINs (a read-
+# only DB leak hands every restaurant to the attacker), and the input space
+# is much larger so the same PBKDF2 helpers are a strict upgrade. We expose
+# them under password-flavoured names so call-sites read naturally; the
+# implementation is identical (`needs_rehash` already reads as a generic
+# encoding check, so it is reused as-is from the staff-PIN side).
+hash_password = hash_pin
+verify_password = verify_pin

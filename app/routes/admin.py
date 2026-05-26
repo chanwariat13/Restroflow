@@ -16,6 +16,7 @@ from app.models.database import MasterSession, Client, setup_tenant_db
 from app.utils.tenant import invalidate_cache
 from app.utils.audit import audit, list_audit
 from app.utils.dates import fmt_date_short
+from app.utils.security import hash_password
 
 router = APIRouter()
 
@@ -196,7 +197,7 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
             discount_percent=data.discount_percent, festival_start=data.festival_start,
             festival_end=data.festival_end, gotenberg_url=data.gotenberg_url,
             tenant_db_url=data.tenant_db_url,
-            dashboard_password=data.dashboard_password,
+            dashboard_password=hash_password(data.dashboard_password) if (data.dashboard_password or "").strip() else "",
             google_review_url=data.google_review_url,
             logo_url=data.logo_url,
             primary_color=data.primary_color,
@@ -230,6 +231,15 @@ async def update_client(slug: str, data: ClientUpdate, request: Request, x_admin
             raise HTTPException(status_code=404, detail="Client not found")
 
         changes = data.model_dump(exclude_none=True)
+        # Treat dashboard_password specially: hash on the way in, and treat
+        # an empty submission as "don't rotate" so a save-without-typing
+        # doesn't wipe the owner's credential.
+        if "dashboard_password" in changes:
+            new_pw = (changes["dashboard_password"] or "").strip()
+            if not new_pw:
+                changes.pop("dashboard_password")
+            else:
+                changes["dashboard_password"] = hash_password(new_pw)
         for field, value in changes.items():
             setattr(c, field, value)
         db.commit()
@@ -872,7 +882,11 @@ async def admin_get_full_settings(slug: str, x_admin_secret: str = Header(...)):
             "festival_end":      c.festival_end or "",
             "gotenberg_url":     c.gotenberg_url or "",
             "tenant_db_url":     c.tenant_db_url,
-            "dashboard_password": c.dashboard_password or "",
+            # Never return the hashed (or legacy plaintext) password to the
+            # admin UI. The form is purely a *rotation* input — empty means
+            # "don't change" on PATCH.
+            "dashboard_password": "",
+            "dashboard_password_set": bool(c.dashboard_password),
             "google_review_url": c.google_review_url or "",
             "logo_url":          c.logo_url or "",
             "primary_color":     c.primary_color or "#ff6b35",
@@ -932,6 +946,15 @@ async def admin_update_full_settings(slug: str, body: AdminFullSettings,
         if not c:
             raise HTTPException(status_code=404, detail="Client not found")
         changes = body.model_dump(exclude_none=True)
+        # Hash dashboard_password on the way in; empty == "don't rotate" so
+        # the form (which always sends every field on save) doesn't wipe
+        # the owner's credential when the field is left blank.
+        if "dashboard_password" in changes:
+            new_pw = (changes["dashboard_password"] or "").strip()
+            if not new_pw:
+                changes.pop("dashboard_password")
+            else:
+                changes["dashboard_password"] = hash_password(new_pw)
         # Mask secrets in audit payload — never log full secret values
         audit_payload = {
             k: ("***" if "secret" in k or "password" in k else v)
