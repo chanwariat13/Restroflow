@@ -617,11 +617,27 @@ async function login() {
 
 function logout() {
   ADMIN_SECRET = '';
-  $('login-screen').style.display = 'flex';
-  $('dashboard').style.display = 'none';
-  $('admin-secret').value = '';
-  $('login-error').style.display = 'none';
+  // Forget the cached secret too so a manual logout actually requires
+  // re-authentication (otherwise a refresh would silently log them back in).
+  try { sessionStorage.removeItem('rf_admin_secret'); } catch(e) {}
+  // Send them back to the unified login screen rather than the inline one.
+  window.location.href = '/login';
 }
+
+// ── Auto-login from /login ───────────────────────────────────────────────
+// If the unified login page just stashed an admin secret in sessionStorage,
+// pre-fill it and call login() so the user doesn't see two login screens
+// in a row. The inline login still works for direct /admin navigation.
+(function bootstrapAdminAuth(){
+  try {
+    const cached = sessionStorage.getItem('rf_admin_secret');
+    if (!cached) return;
+    const inp = document.getElementById('admin-secret');
+    if (inp) inp.value = cached;
+    // Wait one tick so the rest of the script (login()) is defined.
+    setTimeout(() => { try { login(); } catch(e) {} }, 0);
+  } catch(e) {}
+})();
 
 /* ═══════════════════════ NAVIGATION ═══════════════════════ */
 function nav(page) {

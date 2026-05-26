@@ -297,10 +297,31 @@ async function login() {
 function logout() {
   clearInterval(refreshTimer);
   SLUG='';PHONE='';PIN='';ROLE='';PERMS=[];
-  document.getElementById('login').style.display='flex';
-  document.getElementById('app').style.display='none';
-  document.getElementById('l-err').style.display='none';
+  try {
+    sessionStorage.removeItem('rf_staff_slug');
+    sessionStorage.removeItem('rf_staff_phone');
+    sessionStorage.removeItem('rf_staff_pin');
+  } catch(e) {}
+  window.location.href = '/login';
 }
+
+// Auto-login from the unified /login page (sessionStorage-cached creds).
+// Falls back silently to the inline login form if no creds are stashed.
+(function bootstrapStaffAuth(){
+  try {
+    const slug  = sessionStorage.getItem('rf_staff_slug');
+    const phone = sessionStorage.getItem('rf_staff_phone');
+    const pin   = sessionStorage.getItem('rf_staff_pin');
+    if (!slug || !phone || !pin) return;
+    const sIn = document.getElementById('l-slug');
+    const phIn = document.getElementById('l-phone');
+    const piIn = document.getElementById('l-pin');
+    if (sIn)  sIn.value  = slug;
+    if (phIn) phIn.value = phone;
+    if (piIn) piIn.value = pin;
+    setTimeout(() => { try { login(); } catch(e) {} }, 0);
+  } catch(e) {}
+})();
 
 // ── TABS ─────────────────────────────────────────────────────────────────
 const TAB_CONFIG = {

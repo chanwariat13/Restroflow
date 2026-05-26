@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>RestroFlow — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:#0a0a0f;color:#f0f0f5;min-height:100vh;
+  display:flex;align-items:center;justify-content:center;padding:16px;
+  background:radial-gradient(ellipse at 50% 0%,#ff6b3515 0%,#0a0a0f 70%);}
+.card{background:#13131a;border:1px solid #2a2a38;border-radius:16px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 0 60px #ff6b3518;}
+.logo{text-align:center;margin-bottom:24px;}
+.logo h1{font-family:'Syne',sans-serif;color:#ff6b35;font-size:28px;font-weight:800;}
+.logo p{color:#8888a0;font-size:13px;margin-top:4px;}
+.tabs{display:flex;gap:0;border:1px solid #2a2a38;border-radius:10px;overflow:hidden;margin-bottom:22px;}
+.tab{flex:1;padding:10px;text-align:center;cursor:pointer;font-size:13px;color:#8888a0;background:transparent;border:none;font-family:'DM Sans',sans-serif;font-weight:500;transition:all .15s;}
+.tab.on{background:#ff6b35;color:#0a0a0f;font-weight:700;}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:13px;}
+.fg label{font-size:12px;color:#8888a0;font-weight:500;}
+.fg input,.fg select{background:#1c1c26;border:1px solid #2a2a38;color:#f0f0f5;padding:10px 13px;border-radius:10px;font-size:14px;font-family:'DM Sans',sans-serif;transition:border-color .15s;}
+.fg input:focus,.fg select:focus{outline:none;border-color:#ff6b35;}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#ff6b35,#ff6b35cc);color:#0a0a0f;font-size:15px;font-weight:700;border:none;border-radius:10px;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px;transition:opacity .15s;}
+.btn:hover{opacity:.9;}.btn:disabled{opacity:.5;cursor:not-allowed;}
+.err{background:#ef444418;border:1px solid #ef444444;color:#f87171;border-radius:8px;padding:10px;font-size:13px;margin-top:10px;display:none;}
+.note{font-size:12px;color:#8888a0;text-align:center;margin-top:14px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <h1>🍽️ RestroFlow</h1>
+    <p>Restaurant Management System</p>
+  </div>
+  <div class="tabs">
+    <button class="tab on" id="tab-admin"   onclick="setTab('admin')">Super Admin</button>
+    <button class="tab"    id="tab-restro"  onclick="setTab('restro')">Restaurant</button>
+  </div>
+
+  <!-- Admin Login -->
+  <div id="adminForm">
+    <div class="fg">
+      <label>Admin Password</label>
+      <input type="password" id="aPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')adminLogin()">
+    </div>
+    <button class="btn" onclick="adminLogin()" id="aBtn">Login as Admin</button>
+    <div class="err" id="aErr"></div>
+  </div>
+
+  <!-- Restaurant Login -->
+  <div id="restroForm" style="display:none">
+    <div class="fg">
+      <label>Restaurant ID (slug)</label>
+      <input type="text" id="rSlug" placeholder="whiteSugar">
+    </div>
+    <div class="fg">
+      <label>Login as</label>
+      <select id="rRole" onchange="updateRoleFields()">
+        <option value="owner">👑 Owner</option>
+        <option value="manager">👔 Manager</option>
+        <option value="kitchen">🔥 Kitchen</option>
+        <option value="waiter">🤵 Waiter</option>
+      </select>
+    </div>
+
+    <!-- Owner credentials: dashboard_password from clients table -->
+    <div id="ownerFields">
+      <div class="fg">
+        <label>Dashboard Password</label>
+        <input type="password" id="rPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')restroLogin()">
+      </div>
+    </div>
+
+    <!-- Manager / Kitchen / Waiter credentials: phone + PIN from staff_members -->
+    <div id="staffFields" style="display:none">
+      <div class="fg">
+        <label>WhatsApp Number</label>
+        <input type="tel" id="rPhone" placeholder="91XXXXXXXXXX">
+      </div>
+      <div class="fg">
+        <label>PIN</label>
+        <input type="password" id="rPin" placeholder="4-6 digit PIN" maxlength="6" onkeydown="if(event.key==='Enter')restroLogin()">
+      </div>
+    </div>
+
+    <button class="btn" onclick="restroLogin()" id="rBtn">Login to Dashboard</button>
+    <div class="err" id="rErr"></div>
+  </div>
+
+  <div class="note">🔒 Secure login · RestroFlow v2</div>
+</div>
+
+<script>
+function setTab(t) {
+  document.getElementById('adminForm').style.display  = t === 'admin'  ? 'block' : 'none';
+  document.getElementById('restroForm').style.display = t === 'restro' ? 'block' : 'none';
+  document.getElementById('tab-admin').classList.toggle('on',  t === 'admin');
+  document.getElementById('tab-restro').classList.toggle('on', t === 'restro');
+}
+
+// Owner uses dashboard_password (one field). Manager/Kitchen/Waiter use phone+PIN (two fields).
+// We hide whichever block doesn't apply so the form looks clean.
+function updateRoleFields() {
+  const role = document.getElementById('rRole').value;
+  document.getElementById('ownerFields').style.display = role === 'owner' ? 'block' : 'none';
+  document.getElementById('staffFields').style.display = role === 'owner' ? 'none'  : 'block';
+}
+
+function showErr(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// ── Admin login ─────────────────────────────────────────────────
+// Restroflow doesn't have a dedicated admin-login API: ADMIN_SECRET is just
+// the value of the env var, and any /admin/* endpoint will return 401 if it's
+// wrong. We probe /admin/clients (cheap, idempotent) to validate it before
+// stashing it in sessionStorage and redirecting.
+async function adminLogin() {
+  const p   = document.getElementById('aPass').value;
+  const btn = document.getElementById('aBtn');
+  if (!p) { showErr('aErr', 'Enter admin password'); return; }
+  btn.disabled = true; btn.textContent = 'Logging in...';
+  document.getElementById('aErr').style.display = 'none';
+  try {
+    const r = await fetch('/admin/clients', { headers: { 'x-admin-secret': p } });
+    if (r.ok) {
+      sessionStorage.setItem('rf_admin_secret', p);
+      window.location.href = '/admin-dashboard';
+      return;
+    }
+    showErr('aErr', 'Invalid admin password');
+  } catch (e) {
+    showErr('aErr', 'Network error');
+  }
+  btn.disabled = false; btn.textContent = 'Login as Admin';
+}
+
+// ── Restaurant login ────────────────────────────────────────────
+// Owner    → POST /api/client/login (slug + dashboard_password) → /dashboard/{slug}
+// Mngr/etc → POST /api/staff/login  (slug + phone + pin)        → /staff/{slug}
+async function restroLogin() {
+  const slug = document.getElementById('rSlug').value.trim();
+  const role = document.getElementById('rRole').value;
+  const btn  = document.getElementById('rBtn');
+  document.getElementById('rErr').style.display = 'none';
+  if (!slug) { showErr('rErr', 'Enter Restaurant ID'); return; }
+  btn.disabled = true; btn.textContent = 'Logging in...';
+
+  try {
+    if (role === 'owner') {
+      const pass = document.getElementById('rPass').value;
+      if (!pass) { showErr('rErr', 'Enter dashboard password'); btn.disabled=false; btn.textContent='Login to Dashboard'; return; }
+      const r = await fetch('/api/client/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ slug: slug, password: pass })
+      });
+      const d = await r.json();
+      if (d.success) {
+        sessionStorage.setItem('rf_client_slug', slug);
+        sessionStorage.setItem('rf_client_password', pass);
+        window.location.href = '/dashboard/' + slug;
+        return;
+      }
+      showErr('rErr', d.error || 'Invalid restaurant ID or password');
+    } else {
+      const phone = document.getElementById('rPhone').value.trim();
+      const pin   = document.getElementById('rPin').value.trim();
+      if (!phone || !pin) { showErr('rErr', 'Enter phone and PIN'); btn.disabled=false; btn.textContent='Login to Dashboard'; return; }
+      const r = await fetch('/api/staff/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ slug: slug, phone: phone, pin: pin })
+      });
+      const d = await r.json();
+      if (!d.success) {
+        showErr('rErr', d.error || 'Invalid phone or PIN');
+      } else if ((d.role || '').toLowerCase() !== role) {
+        // Mirror the HotelFlow behaviour: tell the user explicitly that they
+        // picked the wrong role rather than a generic "invalid" message.
+        showErr('rErr', `This account is registered as ${d.role}, not ${role}. Pick the correct role.`);
+      } else {
+        sessionStorage.setItem('rf_staff_slug',  slug);
+        sessionStorage.setItem('rf_staff_phone', phone);
+        sessionStorage.setItem('rf_staff_pin',   pin);
+        window.location.href = '/staff/' + slug;
+        return;
+      }
+    }
+  } catch (e) {
+    showErr('rErr', 'Network error');
+  }
+  btn.disabled = false; btn.textContent = 'Login to Dashboard';
+}
+
+// Pre-select tab + slug from query string so deep links like
+//   /login?tab=restro&slug=whiteSugar&role=manager
+// open the right form pre-filled.
+const sp = new URLSearchParams(window.location.search);
+if (sp.get('tab') === 'restro') setTab('restro');
+if (sp.get('slug')) document.getElementById('rSlug').value = sp.get('slug');
+if (sp.get('role')) {
+  const sel = document.getElementById('rRole');
+  if ([...sel.options].some(o => o.value === sp.get('role'))) {
+    sel.value = sp.get('role');
+    updateRoleFields();
+  }
+}
+</script>
+</body>
+</html>

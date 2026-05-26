@@ -454,9 +454,27 @@ async function login() {
 
 function logout() {
   SLUG=''; PASS=''; RESTRO='';
-  document.getElementById('login').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
+  try {
+    sessionStorage.removeItem('rf_client_slug');
+    sessionStorage.removeItem('rf_client_password');
+  } catch(e) {}
+  window.location.href = '/login';
 }
+
+// Auto-login from the unified /login page (sessionStorage-cached creds).
+// Falls back silently to the inline login form if no creds are stashed.
+(function bootstrapClientAuth(){
+  try {
+    const slug = sessionStorage.getItem('rf_client_slug');
+    const pass = sessionStorage.getItem('rf_client_password');
+    if (!slug || !pass) return;
+    const sIn = document.getElementById('l-slug');
+    const pIn = document.getElementById('l-pass');
+    if (sIn) sIn.value = slug;
+    if (pIn) pIn.value = pass;
+    setTimeout(() => { try { login(); } catch(e) {} }, 0);
+  } catch(e) {}
+})();
 
 // ── NAVIGATION ─────────────────────────────────────────────────────────────
 function showPage(id) {
