@@ -15,6 +15,7 @@ import json, os
 from app.models.database import MasterSession, Client, get_tenant_session
 from app.utils.tenant import load_tenant
 from app.utils import redis_client as rc
+from app.utils.dates import fmt_date_short
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
@@ -64,7 +65,7 @@ async def client_login(req: LoginReq):
 async def client_overview(slug: str, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
     cfg = load_tenant(slug)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
 
     with cfg.db_session() as db:
         # Today orders
@@ -221,7 +222,7 @@ async def get_customers(slug: str, x_client_password: str = Header(...)):
 async def get_orders(slug: str, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
     cfg = load_tenant(slug)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT * FROM orders WHERE date_only=:d ORDER BY created_at DESC"

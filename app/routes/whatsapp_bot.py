@@ -5,6 +5,7 @@ POST /webhook/{slug}/whatsapp  ← Evolution API calls this per client
 slug in the URL identifies which client/restaurant this message belongs to.
 All logic is identical to single-tenant version but uses TenantConfig + slug-prefixed Redis.
 """
+import os
 import re
 import httpx
 import secrets as _secrets
@@ -16,10 +17,20 @@ from sqlalchemy import text
 
 from app.utils.tenant import load_tenant, TenantConfig
 from app.utils import redis_client as rc
+from app.utils.dates import fmt_date_short
 from app.services import whatsapp as wa
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
+
+# Internal HTTP self-calls (BILL, SPLIT, deduct-inventory) reach back into our
+# own FastAPI process. The previous hardcoded "http://localhost:8000" broke
+# whenever the service ran on a non-default port, behind a reverse proxy, or
+# in any environment where the public-facing host differs from the bind addr.
+# Operators can override via the INTERNAL_BASE_URL env var (e.g.
+# "http://127.0.0.1:9000") while keeping the localhost default for the common
+# single-process deployment.
+_INTERNAL_BASE_URL = os.getenv("INTERNAL_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
 @router.post("/webhook/{slug}/whatsapp")
@@ -137,7 +148,7 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         phone = rc.get_table_phone(cfg.slug, table) or ""
         async with httpx.AsyncClient(timeout=30) as client:
             await client.post(
-                f"http://localhost:8000/webhook/{cfg.slug}/generate-bill",
+                f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/generate-bill",
                 json={"table": table, "phone": phone}
             )
         await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
@@ -160,7 +171,7 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(
-                    f"http://localhost:8000/webhook/{cfg.slug}/split-bill",
+                    f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/split-bill",
                     json={"table": table, "mode": "equal",
                            "parts": parts, "shares": shares,
                            "notify_owner": True}
@@ -361,7 +372,7 @@ async def _stock_list(cfg: TenantConfig, staff_phone: str):
 
 
 async def _report(cfg: TenantConfig, staff_phone: str):
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(text(
             "SELECT payment_method, SUM(total) as amount, COUNT(*) as cnt "
@@ -560,7 +571,7 @@ async def _cust_paid(cfg, phone, upper, session):
     if upper in ("8", "CHECKOUT"): await _checkout(cfg, phone, session); return
     if upper in ("5", "BILL"):
         async with httpx.AsyncClient(timeout=30) as client:
-            await client.post(f"http://localhost:8000/webhook/{cfg.slug}/generate-bill",
+            await client.post(f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/generate-bill",
                               json={"table": table, "phone": phone})
         await wa.send_text(cfg, phone, "📄 Bill sent!"); return
     if upper in ("7", "WAITER"):
@@ -711,7 +722,7 @@ async def _save_order(cfg, session, phone, orders, method, total, sub, tax):
                 items,subtotal,tax,total,payment_method,status,billed)
                 VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,:method,'Paid',FALSE)
             """), {"oid": order_id, "date": now.strftime("%d/%m/%Y, %I:%M:%S %p"),
-                   "donly": now.strftime("%-d/%-m/%Y"), "name": name, "phone": phone,
+                   "donly": fmt_date_short(now), "name": name, "phone": phone,
                    "table": table, "items": items_str, "sub": sub, "tax": tax,
                    "total": total, "method": method})
             db.commit()
@@ -722,7 +733,7 @@ async def _save_order(cfg, session, phone, orders, method, total, sub, tax):
 async def _call_deduct_inventory(cfg, orders, phone, table):
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(f"http://localhost:8000/webhook/{cfg.slug}/deduct-inventory",
+            await client.post(f"{_INTERNAL_BASE_URL}/webhook/{cfg.slug}/deduct-inventory",
                               json={"items": [{"name": o.get("menu_name") or o["name"],
                                                 "quantity": o["quantity"]} for o in orders],
                                     "phone": phone, "table": table})

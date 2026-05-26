@@ -14,6 +14,7 @@ from typing import Optional
 from app.models.database import MasterSession, Client, setup_tenant_db
 from app.utils.tenant import invalidate_cache
 from app.utils.audit import audit, list_audit
+from app.utils.dates import fmt_date_short
 
 router = APIRouter()
 
@@ -523,7 +524,7 @@ async def admin_client_overview(slug: str, x_admin_secret: str = Header(...)):
     from app.utils import redis_client as rc
     IST = ZoneInfo("Asia/Kolkata")
     cfg = load_tenant(slug)
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
         rows = db.execute(sqlt(
             "SELECT payment_method, SUM(total) as amount, COUNT(*) as cnt "
@@ -554,7 +555,7 @@ async def admin_client_orders(slug: str, x_admin_secret: str = Header(...)):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     cfg = load_tenant(slug)
-    today = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(ZoneInfo("Asia/Kolkata")))
     with cfg.db_session() as db:
         rows = db.execute(sqlt("SELECT * FROM orders WHERE date_only=:d ORDER BY created_at DESC"), {"d":today}).fetchall()
     return JSONResponse([dict(r._mapping) for r in rows])
@@ -600,7 +601,7 @@ async def admin_master_dashboard(x_admin_secret: str = Header(...)):
     from zoneinfo import ZoneInfo
     from app.utils import redis_client as rc
     IST = ZoneInfo("Asia/Kolkata")
-    today = datetime.now(IST).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(IST))
 
     db = MasterSession()
     try:
@@ -683,7 +684,7 @@ async def admin_all_orders(x_admin_secret: str = Header(...), limit: int = 200):
     _auth(x_admin_secret)
     from datetime import datetime
     from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%-d/%-m/%Y")
+    today = fmt_date_short(datetime.now(ZoneInfo("Asia/Kolkata")))
 
     db = MasterSession()
     try:
@@ -1092,7 +1093,7 @@ async def admin_cash_confirm(slug: str, body: AdminPhoneAction,
             items,subtotal,tax,total,payment_method,status,billed,customer_gstin)
             VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,'Cash','Paid',FALSE,:gstin)
         """), {"oid": order_id, "date": now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
-                "donly": now_ist.strftime("%-d/%-m/%Y"), "name": name,
+                "donly": fmt_date_short(now_ist), "name": name,
                 "phone": body.cust_phone, "table": table, "items": items_str,
                 "sub": sub, "tax": tax, "total": total, "gstin": customer_gstin})
         db.commit()
