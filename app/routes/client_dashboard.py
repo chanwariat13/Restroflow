@@ -3,6 +3,7 @@ routes/client_dashboard.py
 API endpoints for the client (restaurant owner) dashboard.
 Login with slug + dashboard_password → see only their own data.
 """
+import hmac
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Header, HTTPException
@@ -12,7 +13,7 @@ from sqlalchemy import text
 from typing import Optional
 import json, os
 
-from app.models.database import MasterSession, Client, get_tenant_session
+from app.models.database import MasterSession, Client
 from app.utils.tenant import load_tenant
 from app.utils import redis_client as rc
 from app.utils.dates import fmt_date_short
@@ -34,7 +35,11 @@ def _get_client(slug: str) -> Client:
 
 def _auth_client(slug: str, password: str) -> Client:
     c = _get_client(slug)
-    if not c.dashboard_password or c.dashboard_password != password:
+    # Constant-time compare so we don't leak the password's prefix length via
+    # timing differences between rejected logins.
+    expected = (c.dashboard_password or "").encode("utf-8")
+    provided = (password or "").encode("utf-8")
+    if not expected or not provided or not hmac.compare_digest(expected, provided):
         raise HTTPException(status_code=401, detail="Wrong password")
     return c
 
@@ -120,24 +125,61 @@ async def get_menu(slug: str, x_client_password: str = Header(...)):
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         rows = db.execute(text("SELECT * FROM menu ORDER BY category, name")).fetchall()
-    return JSONResponse([dict(r._mapping) for r in rows])
+    out = []
+    for r in rows:
+        d = dict(r._mapping)
+        # Mirror the admin endpoint's normalization so the client dashboard
+        # gets a clean shape and the comma-separated dietary_tags stored in
+        # the DB surface as an actual list.
+        d["gst_rate"] = float(d["gst_rate"]) if d.get("gst_rate") is not None else None
+        d["dietary_tags"] = [t.strip() for t in (d.get("dietary_tags") or "").split(",") if t.strip()]
+        out.append(d)
+    return JSONResponse(out)
 
 
 class MenuItemBody(BaseModel):
     name: str; category: str = "Main Course"; price: float
     available: str = "Yes"; type: str = "veg"
     image: str = ""; description: str = ""; bestseller: str = "no"
+    # P1 — owner can now set per-item GST and dietary tags from their own
+    # dashboard. Previously only the super admin could. None on gst_rate
+    # means "use the client default"; tags is a list of short slugs like
+    # ["jain", "vegan", "glutenfree", "egg", "spicy"].
+    gst_rate: Optional[float] = None
+    dietary_tags: list[str] = []
+
+
+def _tags_to_csv(tags) -> str:
+    """Normalize a list/string of tags into a comma-separated lowercase csv.
+
+    Mirrors the helper of the same name in admin.py so admin- and
+    client-managed menu items share a wire format.
+    """
+    if isinstance(tags, str):
+        parts = tags.split(",")
+    else:
+        parts = list(tags or [])
+    cleaned: list[str] = []
+    seen: set = set()
+    for t in parts:
+        v = str(t).strip().lower().replace(" ", "")
+        if v and v not in seen:
+            seen.add(v); cleaned.append(v)
+    return ",".join(cleaned)
+
 
 @router.post("/api/client/{slug}/menu")
 async def add_menu_item(slug: str, body: MenuItemBody, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
     cfg = load_tenant(slug)
+    tags = _tags_to_csv(body.dietary_tags)
     with cfg.db_session() as db:
         db.execute(text(
-            "INSERT INTO menu (name,category,price,available,type,image,description,bestseller) "
-            "VALUES (:n,:cat,:p,:av,:t,:img,:desc,:best)"
+            "INSERT INTO menu (name,category,price,available,type,image,description,bestseller,gst_rate,dietary_tags) "
+            "VALUES (:n,:cat,:p,:av,:t,:img,:desc,:best,:gst,:tags)"
         ), {"n": body.name, "cat": body.category, "p": body.price, "av": body.available,
-            "t": body.type, "img": body.image, "desc": body.description, "best": body.bestseller})
+            "t": body.type, "img": body.image, "desc": body.description, "best": body.bestseller,
+            "gst": body.gst_rate, "tags": tags})
         db.commit()
     return JSONResponse({"success": True, "message": "Item added"})
 
@@ -145,13 +187,15 @@ async def add_menu_item(slug: str, body: MenuItemBody, x_client_password: str = 
 async def update_menu_item(slug: str, item_id: int, body: MenuItemBody, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
     cfg = load_tenant(slug)
+    tags = _tags_to_csv(body.dietary_tags)
     with cfg.db_session() as db:
         db.execute(text(
             "UPDATE menu SET name=:n,category=:cat,price=:p,available=:av,type=:t,"
-            "image=:img,description=:desc,bestseller=:best WHERE id=:id"
+            "image=:img,description=:desc,bestseller=:best,gst_rate=:gst,dietary_tags=:tags "
+            "WHERE id=:id"
         ), {"n": body.name, "cat": body.category, "p": body.price, "av": body.available,
             "t": body.type, "img": body.image, "desc": body.description,
-            "best": body.bestseller, "id": item_id})
+            "best": body.bestseller, "gst": body.gst_rate, "tags": tags, "id": item_id})
         db.commit()
     return JSONResponse({"success": True})
 
@@ -313,9 +357,13 @@ async def get_qr_codes(slug: str, x_client_password: str = Header(...)):
         secrets = json.loads(c.table_secrets or "{}")
     except Exception:
         secrets = {}
+    # Honor the tenant's configured table_prefix so a client that picked
+    # e.g. "A" sees "A1, A2…" QR codes — and the registration endpoint's
+    # prefix-aware regex actually accepts them.
+    prefix = (c.table_prefix or "T").upper()
     qr_codes = []
     for i in range(1, (c.table_count or 10) + 1):
-        table = f"T{i}"
+        table = f"{prefix}{i}"
         secret = secrets.get(table, f"{slug[:3].upper()}{2025+i}")
         reg_url = f"{base_url}/r/{slug}?table={table}&secret={secret}"
         qr_api  = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data={reg_url}"

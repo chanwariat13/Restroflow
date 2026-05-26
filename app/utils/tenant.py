@@ -4,9 +4,8 @@ Loads the correct client config for every request based on slug in the URL.
 Caches in memory so DB is only hit once per client per server restart.
 """
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
-from functools import lru_cache
 from fastapi import HTTPException
 
 from app.models.database import MasterSession, Client, get_tenant_session

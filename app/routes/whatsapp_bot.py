@@ -33,6 +33,17 @@ IST = ZoneInfo("Asia/Kolkata")
 _INTERNAL_BASE_URL = os.getenv("INTERNAL_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
+def _tprefix(cfg: TenantConfig) -> str:
+    """Per-tenant uppercase table prefix (e.g. "T", "A", "TBL"). Falls back
+    to "T" so legacy clients that haven't set table_prefix still work."""
+    return (getattr(cfg, "table_prefix", None) or "T").upper()
+
+
+def _tre(cfg: TenantConfig) -> str:
+    """Regex-escaped prefix for use in `^<prefix>\\d+$` patterns."""
+    return re.escape(_tprefix(cfg))
+
+
 @router.post("/webhook/{slug}/whatsapp")
 async def whatsapp_webhook(
     request: Request,
@@ -101,6 +112,8 @@ async def _handle_message(cfg: TenantConfig, body: dict):
 async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
     clean = re.sub(r"[_*~`]", "", text).strip()
     upper = clean.upper()
+    P  = _tprefix(cfg)
+    PE = _tre(cfg)
 
     m = re.match(r"^APPROVE\s+(\d+)$", upper)
     if m:
@@ -124,9 +137,9 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         rc.unblock_phone(cfg.slug, m.group(1))
         await wa.send_text(cfg, staff_phone, f"✅ {m.group(1)} unblocked."); return
 
-    m = re.match(r"^FREE\s+T(\d+)$", upper)
+    m = re.match(rf"^FREE\s+{PE}(\d+)$", upper)
     if m:
-        table = f"T{m.group(1)}"
+        table = f"{P}{m.group(1)}"
         phone = rc.get_table_phone(cfg.slug, table)
         if phone:
             rc.clear_customer(cfg.slug, phone, table)
@@ -135,16 +148,16 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
             await wa.send_text(cfg, staff_phone, f"ℹ️ Table {table} already free.")
         return
 
-    m = re.match(r"^STATUS\s+(T?\d+)$", upper)
+    m = re.match(rf"^STATUS\s+({PE}?\d+)$", upper)
     if m:
         await _status(cfg, staff_phone, m.group(1)); return
 
     if upper in ("TABLES", "TABLE STATUS"):
         await _tables(cfg, staff_phone); return
 
-    m = re.match(r"^BILL\s+T(\d+)$", upper)
+    m = re.match(rf"^BILL\s+{PE}(\d+)$", upper)
     if m:
-        table = f"T{m.group(1)}"
+        table = f"{P}{m.group(1)}"
         phone = rc.get_table_phone(cfg.slug, table) or ""
         async with httpx.AsyncClient(timeout=30) as client:
             await client.post(
@@ -154,13 +167,13 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         await wa.send_text(cfg, staff_phone, f"📄 Bill sent for {table}")
         return
 
-    # SPLIT T1 N — split today's paid+unbilled orders for table T1 into N equal
-    # shares; each share PDF goes to the owner. Optional comma-separated phones
-    # follow the count: "SPLIT T1 3 91xx,91yy,91zz" sends each share directly
-    # to the matching guest.
-    m = re.match(r"^SPLIT\s+T(\d+)\s+(\d+)(?:\s+([\d,]+))?$", upper)
+    # SPLIT <prefix>1 N — split today's paid+unbilled orders for the table
+    # into N equal shares; each share PDF goes to the owner. Optional
+    # comma-separated phones follow the count: "SPLIT T1 3 91xx,91yy,91zz"
+    # sends each share directly to the matching guest.
+    m = re.match(rf"^SPLIT\s+{PE}(\d+)\s+(\d+)(?:\s+([\d,]+))?$", upper)
     if m:
-        table = f"T{m.group(1)}"
+        table = f"{P}{m.group(1)}"
         parts = max(2, int(m.group(2)))
         phones_raw = m.group(3) or ""
         phones = [p for p in phones_raw.split(",") if p]
@@ -202,9 +215,9 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
     if upper == "REPORT":
         await _report(cfg, staff_phone); return
 
-    m = re.match(r"^AMOUNT\s+T(\d+)$", upper)
+    m = re.match(rf"^AMOUNT\s+{PE}(\d+)$", upper)
     if m:
-        await _amount(cfg, staff_phone, f"T{m.group(1)}"); return
+        await _amount(cfg, staff_phone, f"{P}{m.group(1)}"); return
 
     if upper in ("ADMIN", "HELP"):
         await _help(cfg, staff_phone); return
@@ -301,7 +314,8 @@ async def _cash_received(cfg: TenantConfig, staff_phone: str, cust_phone: str):
 
 
 async def _status(cfg: TenantConfig, staff_phone: str, target: str):
-    if re.match(r"^T\d+$", target.upper()):
+    PE = _tre(cfg)
+    if re.match(rf"^{PE}\d+$", target.upper()):
         table = target.upper()
         phone = rc.get_table_phone(cfg.slug, table)
         if not phone:
@@ -407,14 +421,15 @@ async def _amount(cfg: TenantConfig, staff_phone: str, table: str):
 
 
 async def _help(cfg: TenantConfig, staff_phone: str):
+    P = _tprefix(cfg)
     await wa.send_text(cfg, staff_phone,
         "🤖 *ADMIN COMMANDS*\n━━━━━━━━━━━━━━━━━━\n\n"
         "✅ *APPROVE 91xx*\n❌ *REJECT 91xx*\n💵 *CASH RECEIVED 91xx*\n"
-        "🚫 *BLOCK 91xx*\n✅ *UNBLOCK 91xx*\n🗑️ *FREE T1*\n"
-        "📊 *STATUS T1*\n📊 *TABLES*\n📄 *BILL T1*\n"
-        "✂️ *SPLIT T1 N* (split bill in N equal shares;\n"
-        "    optional phones: SPLIT T1 3 91aa,91bb,91cc)\n"
-        "📦 *RESTOCK*\n📦 *STOCK*\n📊 *REPORT*\n💰 *AMOUNT T1*")
+        f"🚫 *BLOCK 91xx*\n✅ *UNBLOCK 91xx*\n🗑️ *FREE {P}1*\n"
+        f"📊 *STATUS {P}1*\n📊 *TABLES*\n📄 *BILL {P}1*\n"
+        f"✂️ *SPLIT {P}1 N* (split bill in N equal shares;\n"
+        f"    optional phones: SPLIT {P}1 3 91aa,91bb,91cc)\n"
+        f"📦 *RESTOCK*\n📦 *STOCK*\n📊 *REPORT*\n💰 *AMOUNT {P}1*")
 
 
 # ═══════════════════════════════════════════════════════
@@ -422,10 +437,12 @@ async def _help(cfg: TenantConfig, staff_phone: str):
 # ═══════════════════════════════════════════════════════
 async def _handle_kitchen(cfg: TenantConfig, kitchen_phone: str, text: str):
     upper = re.sub(r"[_*~`]", "", text).strip().upper()
+    P  = _tprefix(cfg)
+    PE = _tre(cfg)
 
-    m = re.match(r"^DONE\s+T(\d+)$", upper)
+    m = re.match(rf"^DONE\s+{PE}(\d+)$", upper)
     if m:
-        table = f"T{m.group(1)}"
+        table = f"{P}{m.group(1)}"
         phone = rc.get_table_phone(cfg.slug, table)
         if not phone:
             await wa.send_text(cfg, kitchen_phone, f"⚠️ No session at {table}"); return
@@ -443,9 +460,9 @@ async def _handle_kitchen(cfg: TenantConfig, kitchen_phone: str, text: str):
         await wa.send_all_staff(cfg, f"🍽️ *FOOD READY — {table}*\n👤 {cust_name}")
         return
 
-    m = re.match(r"^T(\d+)$", upper)
+    m = re.match(rf"^{PE}(\d+)$", upper)
     if m:
-        table = f"T{m.group(1)}"
+        table = f"{P}{m.group(1)}"
         phone = rc.get_table_phone(cfg.slug, table)
         if not phone:
             await wa.send_text(cfg, kitchen_phone, f"⚠️ No session at {table}"); return
@@ -456,7 +473,8 @@ async def _handle_kitchen(cfg: TenantConfig, kitchen_phone: str, text: str):
         await wa.send_text(cfg, kitchen_phone, f"✅ Order confirmed for {table}. Preparing!")
         return
 
-    await wa.send_text(cfg, kitchen_phone, "❓\n\n*T1* — confirm order\n*DONE T1* — food ready")
+    await wa.send_text(cfg, kitchen_phone,
+        f"❓\n\n*{P}1* — confirm order\n*DONE {P}1* — food ready")
 
 
 # ═══════════════════════════════════════════════════════
@@ -545,7 +563,11 @@ async def _cust_pending_online(cfg, phone, upper, session):
         await wa.send_all_staff(cfg, f"💵 *CASH SWITCH*\n👤 {session.get('name')} | 🪑 {session.get('table')} | ₹{total:.0f}\n✅ *CASH RECEIVED {phone}*")
         return
     if upper in ("4", "CANCEL"):
-        session.update({"status": "ORDER_PLACED", "orders": []})
+        # Don't wipe the cart on payment cancel — the order has already been
+        # sent to the kitchen and the customer would have to re-enter every
+        # line. Just step back to ORDER_PLACED so they can retry payment or
+        # tap *2* for cash.
+        session["status"] = "ORDER_PLACED"
         rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
         await wa.send_text(cfg, phone, "❌ Cancelled.\n\n*5* - Pay | *1* - Menu"); return
     await wa.send_text(cfg, phone, "⏳ Waiting for payment.\n\n*2* - 💵 Cash | *4* - ❌ Cancel")
@@ -553,7 +575,9 @@ async def _cust_pending_online(cfg, phone, upper, session):
 
 async def _cust_pending_cash(cfg, phone, upper, session):
     if upper in ("4", "CANCEL"):
-        session.update({"status": "ORDER_PLACED", "orders": []})
+        # Same fix as _cust_pending_online: keep the cart so the customer can
+        # switch back to online or just retry without re-typing their order.
+        session["status"] = "ORDER_PLACED"
         rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
         await wa.send_text(cfg, phone, "❌ Cancelled."); return
     if upper in ("7", "WAITER"):
@@ -606,21 +630,58 @@ async def _initiate_payment(cfg: TenantConfig, phone: str, session: dict):
     bill += f"━━━━━━━━━━━━━━━━━━\n💵 *Total: ₹{total:.0f}*\n"
 
     if cfg.payment_method == "razorpay":
+        # Try to obtain a Razorpay payment link, but never silently send the
+        # customer a message containing an empty URL — fall back to UPI (if
+        # configured) or a clear cash-only instruction. The session status
+        # is reset so the user can retry or pay cash without being stuck in
+        # PENDING_PAYMENT forever.
         pay_url = ""
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.post(
-                    "https://api.razorpay.com/v1/payment_links",
-                    auth=(cfg.razorpay_key_id, cfg.razorpay_key_secret),
-                    json={"amount": int(total*100), "currency": "INR",
-                          "notes": {"phone": phone, "order_id": order_id, "table": table}}
-                )
-                pay_url = resp.json().get("short_url", "")
-        except Exception:
-            pass
-        await wa.send_text(cfg, phone,
-            f"💳 *PAYMENT LINK*\n━━━━━━━━━━━━━━━━━━\n📋 {order_id} | 🪑 {table}\n\n{bill}\n"
-            f"👆 Pay here:\n{pay_url}\n\n*2* - 💵 Cash | *4* - ❌ Cancel")
+        razorpay_err = ""
+        if not (cfg.razorpay_key_id and cfg.razorpay_key_secret):
+            razorpay_err = "Razorpay not configured for this restaurant."
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        "https://api.razorpay.com/v1/payment_links",
+                        auth=(cfg.razorpay_key_id, cfg.razorpay_key_secret),
+                        json={"amount": int(total*100), "currency": "INR",
+                              "notes": {"phone": phone, "order_id": order_id, "table": table}}
+                    )
+                if resp.status_code in (200, 201):
+                    pay_url = (resp.json() or {}).get("short_url") or ""
+                else:
+                    razorpay_err = f"HTTP {resp.status_code}"
+            except Exception as e:
+                razorpay_err = str(e)[:120]
+
+        if pay_url:
+            await wa.send_text(cfg, phone,
+                f"💳 *PAYMENT LINK*\n━━━━━━━━━━━━━━━━━━\n📋 {order_id} | 🪑 {table}\n\n{bill}\n"
+                f"👆 Pay here:\n{pay_url}\n\n*2* - 💵 Cash | *4* - ❌ Cancel")
+        else:
+            # Roll the session back so the customer isn't trapped in
+            # PENDING_PAYMENT with no link to actually pay.
+            session["status"] = "ORDER_PLACED"
+            rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
+            upi_block = ""
+            if cfg.upi_id:
+                import urllib.parse
+                upi = (f"upi://pay?pa={cfg.upi_id}"
+                       f"&pn={urllib.parse.quote(cfg.upi_name or cfg.restaurant_name)}"
+                       f"&am={total:.2f}&tn={order_id}&cu=INR")
+                upi_block = f"\n💡 You can also pay via UPI:\n{upi}\n"
+            await wa.send_text(cfg, phone,
+                "⚠️ *Online payment is temporarily unavailable.*\n"
+                f"━━━━━━━━━━━━━━━━━━\n📋 {order_id} | 🪑 {table}\n\n{bill}"
+                f"{upi_block}\n👋 Please pay cash to staff (type *2*) or try again."
+            )
+            # Tell staff so they can collect cash promptly.
+            await wa.send_all_staff(cfg,
+                f"⚠️ *Razorpay link failed* for {name} | 🪑 {table} | ₹{total:.0f}\n"
+                f"Reason: {razorpay_err or 'no short_url returned'}\n"
+                "Customer prompted to pay cash.")
+            return
     else:
         import urllib.parse
         upi = f"upi://pay?pa={cfg.upi_id}&pn={urllib.parse.quote(cfg.upi_name)}&am={total:.2f}&tn={order_id}&cu=INR"
