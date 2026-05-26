@@ -3,11 +3,13 @@ app/main.py - RestroFlow Multi-Tenant Entry Point
 One deployment → unlimited clients
 3 dashboards: Super Admin | Client Owner | Staff
 """
-import traceback
+import logging
 import os
+import sys
+import traceback
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -27,6 +29,22 @@ from app.routes.client_dashboard  import router as client_router
 from app.routes.staff_dashboard   import router as staff_router
 from app.routes.customer_pages    import router as pages_router
 
+logger = logging.getLogger(__name__)
+
+# ── Refuse to start with the placeholder ADMIN_SECRET ────────────────────────
+# routes/admin.py reads ADMIN_SECRET at import time. If it's still the default
+# placeholder, the master admin API is effectively unauthenticated, so we abort
+# boot here rather than ship a wide-open server.
+_ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
+if not _ADMIN_SECRET or _ADMIN_SECRET == "change-this-secret":
+    logger.critical(
+        "ADMIN_SECRET is not set (or still 'change-this-secret'). "
+        "Refusing to start — set a strong ADMIN_SECRET env var."
+    )
+    raise SystemExit(
+        "ADMIN_SECRET must be set to a strong, unique value before starting RestroFlow."
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,7 +63,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RestroFlow", version="2.0.0", lifespan=lifespan)
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# CORS: lock down to a configured allow-list. Set CORS_ORIGINS to a comma-
+# separated list of allowed frontends (e.g. "https://app.example.com").
+# Use "*" only for local development.
+_cors_raw = os.getenv("CORS_ORIGINS", "*").strip()
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # All routes
 app.include_router(bot_router)
@@ -62,7 +91,10 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 
 @app.get("/")
 async def root():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    # No bundled SPA index.html — send users to the unified login page.
+    # Previously this returned FileResponse(STATIC_DIR/'index.html'), which
+    # 500'd because that file does not exist.
+    return RedirectResponse(url="/login", status_code=307)
 
 @app.get("/health")
 async def health():

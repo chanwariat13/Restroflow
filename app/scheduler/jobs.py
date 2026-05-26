@@ -82,7 +82,9 @@ async def run_daily_report():
 
 async def _daily_report_one(cfg: TenantConfig):
     yesterday = (datetime.now(IST) - timedelta(days=1))
-    date_str  = yesterday.strftime("%-d/%-m/%Y")
+    # Use portable date formatting. The previous "%-d/%-m/%Y" relies on a GNU
+    # libc extension that breaks on some Linux base images and on macOS.
+    date_str  = f"{yesterday.day}/{yesterday.month}/{yesterday.year}"
 
     with cfg.db_session() as db:
         rows = db.execute(text(
@@ -117,7 +119,7 @@ async def _daily_report_one(cfg: TenantConfig):
 
         for row in paid_rows:
             phone = row.phone; name = row.customer_name or "Customer"; spent = float(row.total or 0)
-            fmt = yesterday.strftime("%-d/%-m/%Y")
+            fmt = f"{yesterday.day}/{yesterday.month}/{yesterday.year}"
             existing_c = db.execute(text("SELECT id FROM customers WHERE phone=:p"), {"p": phone}).fetchone()
             if existing_c:
                 db.execute(text("UPDATE customers SET total_visits=total_visits+1, total_spent=total_spent+:s, last_visit=:d WHERE phone=:p"),
