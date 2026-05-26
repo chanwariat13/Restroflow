@@ -4,6 +4,7 @@ API endpoints for the client (restaurant owner) dashboard.
 Login with slug + dashboard_password → see only their own data.
 """
 import hmac
+import logging
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,9 +19,11 @@ from app.models.database import MasterSession, Client
 from app.utils.tenant import load_tenant
 from app.utils import redis_client as rc
 from app.utils.dates import fmt_date_short
+from app.utils.security import hash_password, verify_password, needs_rehash
 
 router = APIRouter()
 IST = ZoneInfo("Asia/Kolkata")
+logger = logging.getLogger(__name__)
 
 
 def _get_client(slug: str) -> Client:
@@ -35,13 +38,49 @@ def _get_client(slug: str) -> Client:
 
 
 def _auth_client(slug: str, password: str) -> Client:
+    """Authenticate an owner against the stored dashboard password.
+
+    Storage formats handled (mirrors staff PIN handling):
+      * `pbkdf2_sha256$...`  — current encoding (PBKDF2-HMAC-SHA256)
+      * anything else        — legacy plaintext, accepted via constant-time
+                                byte compare and *transparently upgraded*
+                                to PBKDF2 on this very request.
+
+    The transparent upgrade happens on the master DB inside its own short
+    session so we never write while another `MasterSession` is open. A
+    write failure here is logged but does NOT fail the login — the user
+    has already proved knowledge of the password and we'd rather degrade
+    silently than lock them out of their own dashboard. The next login
+    will retry the upgrade.
+    """
     c = _get_client(slug)
-    # Constant-time compare so we don't leak the password's prefix length via
-    # timing differences between rejected logins.
-    expected = (c.dashboard_password or "").encode("utf-8")
-    provided = (password or "").encode("utf-8")
-    if not expected or not provided or not hmac.compare_digest(expected, provided):
+    stored = c.dashboard_password or ""
+    submitted = password or ""
+    if not stored or not submitted or not verify_password(submitted, stored):
         raise HTTPException(status_code=401, detail="Wrong password")
+
+    # Transparent legacy-plaintext upgrade. We only rewrite when the stored
+    # value isn't already in the current encoding, to avoid a master-DB
+    # write on every successful login.
+    if needs_rehash(stored):
+        try:
+            db = MasterSession()
+            try:
+                row = db.query(Client).filter(Client.slug == slug).first()
+                # Re-check the live row in case someone else just rotated it,
+                # so we never clobber a fresh hash with one derived from a
+                # stale read.
+                if row and (row.dashboard_password or "") == stored:
+                    row.dashboard_password = hash_password(submitted)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(
+                "dashboard_password rehash failed for slug=%s: %s. "
+                "Will retry on next login.",
+                slug, e,
+            )
     return c
 
 
@@ -339,7 +378,18 @@ async def update_settings(slug: str, body: SettingsUpdate, x_client_password: st
     db = MasterSession()
     try:
         client = db.query(Client).filter(Client.slug == slug).first()
-        for field, value in body.model_dump(exclude_none=True).items():
+        changes = body.model_dump(exclude_none=True)
+        # Hash the new dashboard password so it lands on disk in the same
+        # PBKDF2 encoding as everything else. An empty string is treated as
+        # "don't rotate" so a UI that submits the form with the password
+        # field blank doesn't silently wipe the owner's credential.
+        if "dashboard_password" in changes:
+            new_pw = (changes["dashboard_password"] or "").strip()
+            if not new_pw:
+                changes.pop("dashboard_password")
+            else:
+                changes["dashboard_password"] = hash_password(new_pw)
+        for field, value in changes.items():
             setattr(client, field, value)
         db.commit()
         from app.utils.tenant import invalidate_cache

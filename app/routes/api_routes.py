@@ -349,8 +349,16 @@ async def receive_order(req: OrderRequest, slug: str = Path(...)):
         return JSONResponse({"success": False, "error": "No active session."})
     if session.get("status") not in ("ORDERING", "ORDER_PLACED"):
         return JSONResponse({"success": False, "error": f"Cannot add items. Status: {session.get('status')}"})
-    if session.get("menuToken") and req.token and session["menuToken"] != req.token:
-        return JSONResponse({"success": False, "error": "Invalid token."})
+    # Token check fails CLOSED. The previous form `if menuToken and req.token
+    # and menuToken != req.token` was bypassable by simply omitting `token`
+    # — once a session had a menuToken, anyone who knew the customer's phone
+    # could place orders on their tab. Now the token is *required* whenever
+    # the session has one, and compared in constant time.
+    expected_token = session.get("menuToken") or ""
+    if expected_token:
+        submitted = (req.token or "").encode("utf-8")
+        if not hmac.compare_digest(expected_token.encode("utf-8"), submitted):
+            return JSONResponse({"success": False, "error": "Invalid token."})
 
     # Server-side resolution: rebuild the cart with authoritative prices.
     # Each customised line is a SEPARATE cart entry so the same base item with
@@ -425,9 +433,15 @@ async def get_cart(req: CartRequest, slug: str = Path(...)):
     if not session:
         return JSONResponse({"orders": [], "valid": False, "status": "NO_SESSION"},
                             headers={"Access-Control-Allow-Origin": "*"})
-    if session.get("menuToken") and req.token and session["menuToken"] != req.token:
-        return JSONResponse({"orders": [], "valid": False, "status": "INVALID_TOKEN"},
-                            headers={"Access-Control-Allow-Origin": "*"})
+    # Same fail-closed token check as receive_order — the previous form
+    # let any caller who knew the phone read someone else's cart simply by
+    # omitting the token. Compare in constant time.
+    expected_token = session.get("menuToken") or ""
+    if expected_token:
+        submitted = (req.token or "").encode("utf-8")
+        if not hmac.compare_digest(expected_token.encode("utf-8"), submitted):
+            return JSONResponse({"orders": [], "valid": False, "status": "INVALID_TOKEN"},
+                                headers={"Access-Control-Allow-Origin": "*"})
 
     return JSONResponse(
         {"orders": session.get("orders", []), "valid": True, "status": session.get("status", "UNKNOWN")},

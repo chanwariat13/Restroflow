@@ -48,38 +48,48 @@ def _internal_headers() -> dict:
     return {"X-Internal-Auth": _INTERNAL_API_KEY} if _INTERNAL_API_KEY else {}
 
 
-# ── Inbound WhatsApp webhook authentication (opt-in) ────────────────────────
+# ── Inbound WhatsApp webhook authentication ────────────────────────────────
 # Evolution API can be configured to send an `apikey` header on every webhook
-# delivery. When `WHATSAPP_WEBHOOK_TOKEN` is set in our env, we require the
-# inbound header to match it (constant-time compare) and reject anything
-# else with 401 — closing the impersonation hole where a third party could
-# POST a forged "messages.upsert" payload to /webhook/{slug}/whatsapp and
-# get treated as a staff WhatsApp number. The header name is configurable
-# (default `apikey`) so operators on a custom Evolution build can swap it.
+# delivery. We require the inbound header to match `WHATSAPP_WEBHOOK_TOKEN`
+# and reject anything else with 401 — closing the impersonation hole where
+# a third party could POST a forged "messages.upsert" payload to
+# /webhook/{slug}/whatsapp and get treated as a staff WhatsApp number.
 #
-# When the env var is unset, we log once per request and allow the call —
-# matching the transitional pattern used everywhere else in this codebase
-# so existing deployments don't break the moment they pull this version.
+# The header name is configurable (default `apikey`) so operators on a
+# custom Evolution build can swap it.
+#
+# Boot-time guard: app/main.py refuses to start when the token is unset
+# unless the operator has explicitly set WHATSAPP_WEBHOOK_AUTH_OPTOUT=1
+# for a short migration window. In that opt-out window we still log every
+# hit at WARNING and accept the request; otherwise the env var is
+# guaranteed to be set by the time we get here.
 _WHATSAPP_WEBHOOK_TOKEN = (os.getenv("WHATSAPP_WEBHOOK_TOKEN") or "").strip()
 _WHATSAPP_WEBHOOK_HEADER = (
     os.getenv("WHATSAPP_WEBHOOK_HEADER") or "apikey"
 ).strip().lower() or "apikey"
+_WHATSAPP_WEBHOOK_OPTOUT = (
+    os.getenv("WHATSAPP_WEBHOOK_AUTH_OPTOUT") or ""
+).strip() in {"1", "true", "yes"}
 
 
 def _verify_whatsapp_webhook(request: Request) -> bool:
-    """Return True if the inbound webhook is authorized.
+    """Return True iff the inbound webhook is authorized.
 
-    * If `WHATSAPP_WEBHOOK_TOKEN` is unset → log a warning, return True
-      (legacy mode; operators get a clear log line nudging them to opt in).
-    * If set → compare the configured header to the env value via
-      `hmac.compare_digest`. Missing / mismatched → False.
+    * Token configured (the production path) → constant-time compare of
+      the inbound header value to the env var. Missing or mismatched
+      header → False.
+    * Token not configured AND `WHATSAPP_WEBHOOK_AUTH_OPTOUT=1` → log
+      every hit at WARNING and return True. The boot-time guard in
+      `app/main.py` refuses to start in any other configuration, so this
+      branch only triggers during an explicit short migration window.
     """
     if not _WHATSAPP_WEBHOOK_TOKEN:
+        # Migration-window opt-out: the boot guard already validated that
+        # `WHATSAPP_WEBHOOK_AUTH_OPTOUT=1` is set when we get here.
         logger.warning(
-            "WhatsApp webhook hit without WHATSAPP_WEBHOOK_TOKEN configured. "
-            "Set it (and configure Evolution to send the matching `%s` header) "
-            "to lock the endpoint down.",
-            _WHATSAPP_WEBHOOK_HEADER,
+            "WhatsApp webhook accepted without auth (WHATSAPP_WEBHOOK_AUTH_OPTOUT=1). "
+            "This is intended for short migrations only — set "
+            "WHATSAPP_WEBHOOK_TOKEN and remove the opt-out as soon as possible."
         )
         return True
     provided = (request.headers.get(_WHATSAPP_WEBHOOK_HEADER) or "").strip()
