@@ -253,3 +253,53 @@ async def _festival_one(cfg: TenantConfig):
 
     await wa.send_owner(cfg,
         f"📢 *FESTIVAL BROADCAST DONE*\n🎉 {cfg.festival_name}\n✅ Sent: {sent} | ❌ Failed: {failed}")
+
+
+# ── K: Auto-resume paused clients (every 5 min) ──────────────────────────────
+async def run_resume_paused():
+    """
+    Flip `active=True` on any client whose scheduled `paused_until` has
+    elapsed. Cheap query (indexed on `paused_until`) so it's safe to run
+    on a tight cadence — operators expect the resume to happen "around
+    that time", not 24h later.
+
+    NOTE: We do NOT auto-resume rows where `paused_until IS NULL`, those
+    are indefinite pauses that require manual /activate.
+    """
+    from app.utils.tenant import invalidate_cache
+    db = MasterSession()
+    try:
+        now = datetime.utcnow()
+        candidates = (db.query(Client)
+                        .filter(Client.active == False,
+                                Client.paused_until.isnot(None),
+                                Client.paused_until <= now)
+                        .all())
+        for c in candidates:
+            slug = c.slug
+            old_reason = c.paused_reason or ""
+            old_until = c.paused_until
+            c.active = True
+            c.paused_until = None
+            c.paused_at = None
+            c.paused_reason = ""
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                continue
+            invalidate_cache(slug)
+            try:
+                # Best-effort owner ping; failures must not block the loop.
+                cfg = load_tenant(slug)
+                await wa.send_owner(cfg,
+                    f"✅ *Service auto-resumed*\n"
+                    f"━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🏪 {cfg.restaurant_name}\n"
+                    f"⏰ Pause ended: {old_until.isoformat()} UTC\n"
+                    + (f"📝 Reason: {old_reason}\n" if old_reason else "")
+                    + f"\nYour menu, dashboard, and WhatsApp bot are now live again.")
+            except Exception:
+                pass
+    finally:
+        db.close()

@@ -123,6 +123,18 @@ class ClientUpdate(BaseModel):
     banner_image:        Optional[str] = None
 
 
+class ClientPause(BaseModel):
+    """Body for POST /admin/clients/{slug}/pause.
+
+    `until` is an ISO-8601 timestamp (date or datetime) at which the
+    auto-resume scheduler should flip the client back to active. Leave
+    `until` blank for an indefinite pause — the client stays inactive
+    until an admin calls /activate manually.
+    """
+    until:  Optional[str] = None
+    reason: Optional[str] = ""
+
+
 # ── List all clients ──────────────────────────────────────────────────────────
 @router.get("/admin/clients")
 async def list_clients(x_admin_secret: str = Header(...)):
@@ -137,6 +149,9 @@ async def list_clients(x_admin_secret: str = Header(...)):
             "table_count":      c.table_count,
             "payment_method":   c.payment_method,
             "evolution_instance": c.evolution_instance,
+            "paused_until":     c.paused_until.isoformat() if c.paused_until else None,
+            "paused_at":        c.paused_at.isoformat() if c.paused_at else None,
+            "paused_reason":    c.paused_reason or "",
         } for c in clients])
     finally:
         db.close()
@@ -158,6 +173,9 @@ async def get_client(slug: str, x_admin_secret: str = Header(...)):
             "staff_kitchen": c.staff_kitchen, "payment_method": c.payment_method,
             "upi_id": c.upi_id, "gst_rate": float(c.gst_rate or 0),
             "festival_active": c.festival_active, "festival_name": c.festival_name,
+            "paused_until":  c.paused_until.isoformat() if c.paused_until else None,
+            "paused_at":     c.paused_at.isoformat() if c.paused_at else None,
+            "paused_reason": c.paused_reason or "",
         })
     finally:
         db.close()
@@ -278,11 +296,159 @@ async def activate_client(slug: str, request: Request, x_admin_secret: str = Hea
     try:
         c = db.query(Client).filter(Client.slug == slug).first()
         if not c: raise HTTPException(status_code=404)
-        c.active = True; db.commit()
+        c.active = True
+        # Resuming clears any pause schedule — `paused_until` is the auto-
+        # resume hint, not a record of past pauses, so it's safe to wipe.
+        c.paused_until = None
+        c.paused_at = None
+        c.paused_reason = ""
+        db.commit()
         invalidate_cache(slug)
         audit("client.activate", actor="admin", actor_role="superadmin",
               slug=slug, target=slug, request=request)
         return JSONResponse({"success": True, "message": f"'{slug}' activated"})
+    finally:
+        db.close()
+
+
+# ── Pause for a period (temporary closure) ───────────────────────────────────
+@router.post("/admin/clients/{slug}/pause")
+async def pause_client(slug: str, data: ClientPause, request: Request, x_admin_secret: str = Header(...)):
+    """
+    Temporarily disable a client. The customer menu, staff dashboard,
+    WhatsApp bot, and scheduled jobs are already gated on `Client.active`,
+    so flipping `active=False` is enough to stop traffic. We additionally
+    persist `paused_until` so the auto-resume scheduler job knows when to
+    flip the row back without operator action.
+    """
+    from datetime import datetime, timedelta, timezone
+    _auth(x_admin_secret)
+
+    until_dt = None
+    raw = (data.until or "").strip()
+    if raw:
+        try:
+            # Accept either YYYY-MM-DD (date-only, treated as end-of-day IST,
+            # because the rest of this codebase is India-only and stamps
+            # business-day boundaries in Asia/Kolkata) or full ISO-8601
+            # timestamp. We always store the result as a naive UTC value so
+            # the auto-resume scheduler job can compare with
+            # `datetime.utcnow()` without timezone gymnastics.
+            if "T" in raw or " " in raw:
+                until_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if until_dt.tzinfo is not None:
+                    until_dt = until_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                # Date-only → 23:59 IST → UTC naive (IST = UTC+5:30)
+                ist_eod = datetime.fromisoformat(raw + "T23:59:59")
+                until_dt = ist_eod - timedelta(hours=5, minutes=30)
+        except ValueError:
+            raise HTTPException(status_code=400,
+                                detail="Invalid 'until' — use YYYY-MM-DD or ISO-8601 timestamp")
+        if until_dt <= datetime.utcnow():
+            raise HTTPException(status_code=400, detail="'until' must be in the future")
+
+    db = MasterSession()
+    try:
+        c = db.query(Client).filter(Client.slug == slug).first()
+        if not c:
+            raise HTTPException(status_code=404, detail="Client not found")
+        c.active = False
+        c.paused_at = datetime.utcnow()
+        c.paused_until = until_dt           # None => indefinite
+        c.paused_reason = (data.reason or "")[:500]
+        db.commit()
+        invalidate_cache(slug)
+        audit("client.pause", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug,
+              payload={"until": raw or None, "reason": data.reason or ""},
+              request=request)
+        return JSONResponse({
+            "success": True,
+            "message": f"'{slug}' paused" + (f" until {raw}" if raw else " indefinitely"),
+            "paused_until": until_dt.isoformat() if until_dt else None,
+        })
+    finally:
+        db.close()
+
+
+# ── Permanent delete (purge) ─────────────────────────────────────────────────
+@router.delete("/admin/clients/{slug}")
+async def purge_client(
+    slug: str,
+    request: Request,
+    x_admin_secret: str = Header(...),
+    x_confirm_slug: str = Header(..., description="Must equal the slug being deleted"),
+    drop_tenant_db: bool = False,
+):
+    """
+    HARD DELETE a client. Removes the master `clients` row and every
+    `staff_members` row for that slug. Audit log entries are append-only and
+    are KEPT for legal/forensic reasons.
+
+    Safety:
+      * `X-Confirm-Slug` header MUST equal the URL slug. Mistyped → 400.
+      * The tenant DB itself (orders, customers, inventory, …) is left
+        intact by default; the operator can decide later whether to drop
+        it. Pass `?drop_tenant_db=true` to also drop every tenant table
+        in this client's DB. The DB itself (and its credentials) are
+        never dropped — only the tables we created in `setup_tenant_db`.
+    """
+    _auth(x_admin_secret)
+    if not x_confirm_slug or not hmac.compare_digest(x_confirm_slug, slug):
+        raise HTTPException(
+            status_code=400,
+            detail="X-Confirm-Slug header must equal the slug in the URL",
+        )
+
+    from app.models.database import StaffMember, TenantBase, get_tenant_engine, _tenant_engines, _tenant_sessions
+
+    db = MasterSession()
+    try:
+        c = db.query(Client).filter(Client.slug == slug).first()
+        if not c:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        snapshot = {
+            "restaurant_name": c.restaurant_name,
+            "tenant_db_url_kept": True,
+            "drop_tenant_db": bool(drop_tenant_db),
+        }
+        tenant_db_url = c.tenant_db_url
+
+        # Optionally drop tenant tables before we lose the URL
+        if drop_tenant_db and tenant_db_url:
+            try:
+                eng = get_tenant_engine(tenant_db_url, slug)
+                TenantBase.metadata.drop_all(bind=eng)
+                snapshot["tenant_db_url_kept"] = False
+                snapshot["tenant_tables_dropped"] = True
+            except Exception as e:
+                # Don't abort the master-row delete just because tenant DB
+                # is unreachable — log to audit and continue.
+                snapshot["tenant_drop_error"] = str(e)[:200]
+
+        # Cascade staff (FK is by slug string, not enforced at DB level)
+        staff_count = db.query(StaffMember).filter(StaffMember.slug == slug).delete(synchronize_session=False)
+        db.delete(c)
+        db.commit()
+
+        # Drop in-memory caches/connections
+        invalidate_cache(slug)
+        _tenant_engines.pop(slug, None)
+        _tenant_sessions.pop(slug, None)
+
+        audit("client.purge", actor="admin", actor_role="superadmin",
+              slug=slug, target=slug,
+              payload={**snapshot, "staff_rows_deleted": staff_count},
+              request=request)
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Client '{slug}' permanently deleted",
+            "staff_rows_deleted": staff_count,
+            "tenant_db_dropped": snapshot.get("tenant_tables_dropped", False),
+        })
     finally:
         db.close()
 
@@ -702,6 +868,9 @@ async def admin_master_dashboard(x_admin_secret: str = Header(...)):
             "customers":       int(custs or 0),
             "low_stock":       int(low or 0),
             "payment_method":  c.payment_method or "upi",
+            "paused_until":    c.paused_until.isoformat() if c.paused_until else None,
+            "paused_at":       c.paused_at.isoformat() if c.paused_at else None,
+            "paused_reason":   c.paused_reason or "",
         })
 
     return JSONResponse({

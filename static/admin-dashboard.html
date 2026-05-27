@@ -576,9 +576,10 @@ let curClient    = null;
 const $  = id => document.getElementById(id);
 const fmt = n => '₹' + (parseFloat(n||0)).toFixed(0);
 
-async function api(path, method='GET', body=null) {
+async function api(path, method='GET', body=null, extraHeaders=null) {
   const opts = { method, headers: { 'x-admin-secret': ADMIN_SECRET } };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  if (extraHeaders) Object.assign(opts.headers, extraHeaders);
   const r = await fetch(BASE + path, opts);
   let data; try { data = await r.json(); } catch(e) { data = null; }
   if (!r.ok) { toast(data?.detail || data?.error || 'Error', 'er'); return null; }
@@ -732,13 +733,24 @@ async function loadRestaurants() {
     list.map(c => {
       const color = c.primary_color || '#ff6b35';
       const av = c.logo_url ? `<img src="${c.logo_url}" onerror="this.style.display='none'">` : (c.restaurant_name||'?')[0].toUpperCase();
+      // Render the pause expiry as a small note under the status badge so
+      // operators can see at a glance "this one comes back on 15 Jun"
+      // without opening the detail drawer.
+      const pausedNote = (!c.active && c.paused_until)
+        ? `<div style="font-size:10px;color:var(--muted);margin-top:4px">resumes ${new Date(c.paused_until).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`
+        : (!c.active && c.paused_reason)
+          ? `<div style="font-size:10px;color:var(--muted);margin-top:4px" title="${(c.paused_reason||'').replace(/"/g,'&quot;')}">${(c.paused_reason||'').slice(0,32)}</div>`
+          : '';
       return `<div class="client-card">
         <div class="cc-head">
           <div style="display:flex;align-items:center;gap:14px">
             <div class="cc-avatar" style="background:${color}22;color:${color};border:1px solid ${color}55">${av}</div>
             <div><div class="cc-name">${c.restaurant_name}</div><div class="cc-slug">${c.slug}</div></div>
           </div>
-          <div class="cc-status ${c.active?'active':'inactive'}"><div class="dot"></div>${c.active?'Active':'Paused'}</div>
+          <div>
+            <div class="cc-status ${c.active?'active':'inactive'}"><div class="dot"></div>${c.active?'Active':'Paused'}</div>
+            ${pausedNote}
+          </div>
         </div>
         <div class="cc-meta">
           <div>Tables<br><b>${c.table_count}</b></div>
@@ -749,16 +761,73 @@ async function loadRestaurants() {
         <div class="cc-foot">
           <button class="btn primary sm" onclick="openDetail('${c.slug}')">⚙ Manage</button>
           <button class="btn sm" onclick="window.open('/dashboard/${c.slug}','_blank')">↗ Open</button>
-          <button class="btn sm ${c.active?'danger':'success'}" onclick="toggleClient('${c.slug}',${c.active})">${c.active?'⏸ Pause':'▶ Activate'}</button>
+          ${c.active
+              ? `<button class="btn sm danger" onclick="pauseClient('${c.slug}','${(c.restaurant_name||'').replace(/'/g,"\\'")}')">⏸ Pause…</button>`
+              : `<button class="btn sm success" onclick="resumeClient('${c.slug}')">▶ Resume</button>`}
+          <button class="btn sm danger" style="margin-left:auto" onclick="deleteClient('${c.slug}','${(c.restaurant_name||'').replace(/'/g,"\\'")}')">🗑 Delete</button>
         </div>
       </div>`;
     }).join('') + '</div>';
 }
 
-async function toggleClient(slug, active) {
-  if (!confirm(`${active?'Pause':'Activate'} ${slug}?`)) return;
-  const r = await api(`/admin/clients/${slug}/${active?'deactivate':'activate'}`, 'POST');
+/* ────────────────────────────────────────────────────────────────────
+   PAUSE / RESUME / DELETE
+   ──────────────────────────────────────────────────────────────────── */
+async function pauseClient(slug, name) {
+  // Two-step prompt: how long, then optional reason. Empty "until" =
+  // indefinite pause (operator must manually resume).
+  const until = prompt(
+    `Pause "${name}" until when?\n\n` +
+    `• Type a date  e.g.  2026-06-15\n` +
+    `• Or a date+time  e.g.  2026-06-15T18:00\n` +
+    `• Leave EMPTY for an indefinite pause (manual resume only)\n\n` +
+    `Tip: pausing immediately blocks customer menu, staff dashboard, ` +
+    `and the WhatsApp bot for this restaurant. Today's data stays intact.`
+  );
+  if (until === null) return; // cancelled
+  const reason = prompt(`Reason for pause (optional):`, '') || '';
+  const r = await api(`/admin/clients/${slug}/pause`, 'POST',
+                      { until: until.trim(), reason });
   if (r) { toast(r.message); loadRestaurants(); loadDashboard(); }
+}
+
+async function resumeClient(slug) {
+  if (!confirm(`Resume "${slug}" now? Customers will be able to order immediately.`)) return;
+  const r = await api(`/admin/clients/${slug}/activate`, 'POST');
+  if (r) { toast(r.message); loadRestaurants(); loadDashboard(); }
+}
+
+async function deleteClient(slug, name) {
+  // Three-step guard: warn → type-the-slug → optional drop-tenant-DB.
+  if (!confirm(
+        `⚠️ PERMANENTLY DELETE "${name}"?\n\n` +
+        `This removes the master config row and all staff PINs. ` +
+        `By default the tenant's own DB (orders, customers, inventory) ` +
+        `is left INTACT — you can drop it later with psql if you want.\n\n` +
+        `Audit log entries are kept (legal requirement).\n\n` +
+        `Continue?`)) return;
+  const typed = prompt(
+        `To confirm, type the slug exactly:\n\n  ${slug}\n\n` +
+        `(case-sensitive — this is the safety net against accidents)`);
+  if (typed === null) return;
+  if (typed !== slug) { toast('Slug did not match — cancelled.', 'er'); return; }
+  const dropDb = confirm(
+        `Also DROP all tenant tables (orders, customers, inventory, menu, …)?\n\n` +
+        `• OK   = drop tenant tables too (irreversible)\n` +
+        `• Cancel = keep tenant DB tables (recommended unless you're sure)`);
+  const qs = dropDb ? '?drop_tenant_db=true' : '';
+  const r = await api(`/admin/clients/${slug}${qs}`, 'DELETE', null,
+                      { 'X-Confirm-Slug': slug });
+  if (r) {
+    toast(`"${slug}" deleted` + (dropDb ? ' (tenant tables dropped)' : ''));
+    loadRestaurants(); loadDashboard();
+  }
+}
+
+async function toggleClient(slug, active) {
+  // Kept for backwards-compat with any other call site (e.g. detail drawer).
+  if (active) return pauseClient(slug, slug);
+  return resumeClient(slug);
 }
 
 /* ═══════════════════════ ALL ORDERS / CUSTOMERS ═══════════════════════ */
