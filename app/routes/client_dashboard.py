@@ -358,6 +358,7 @@ async def get_settings(slug: str, x_client_password: str = Header(...)):
         "primary_color": c.primary_color or "#ff6b35",
         "welcome_message": c.welcome_message or "",
         "banner_image": c.banner_image or "",
+        "payment_method": c.payment_method or "upi",
     })
 
 class SettingsUpdate(BaseModel):
@@ -371,6 +372,7 @@ class SettingsUpdate(BaseModel):
     dashboard_password: Optional[str] = None
     upi_id:             Optional[str] = None
     upi_name:           Optional[str] = None
+    payment_method:     Optional[str] = None
 
 @router.patch("/api/client/{slug}/settings")
 async def update_settings(slug: str, body: SettingsUpdate, x_client_password: str = Header(...)):
@@ -379,6 +381,13 @@ async def update_settings(slug: str, body: SettingsUpdate, x_client_password: st
     try:
         client = db.query(Client).filter(Client.slug == slug).first()
         changes = body.model_dump(exclude_none=True)
+        # Validate payment_method if provided
+        if "payment_method" in changes:
+            if changes["payment_method"] not in ("razorpay", "upi_qr", "both", "upi"):
+                return JSONResponse(
+                    {"success": False, "error": "payment_method must be one of: razorpay, upi_qr, both, upi"},
+                    status_code=400,
+                )
         # Hash the new dashboard password so it lands on disk in the same
         # PBKDF2 encoding as everything else. An empty string is treated as
         # "don't rotate" so a UI that submits the form with the password

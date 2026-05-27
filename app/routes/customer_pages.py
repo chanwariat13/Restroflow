@@ -205,6 +205,216 @@ async def registration_page(slug: str):
 </html>""")
 
 
+@router.get("/pay/{slug}", response_class=HTMLResponse)
+async def payment_page(slug: str):
+    """Customer-facing payment page. Query params: phone, table, token."""
+    c = _get_client(slug)
+    name = html.escape((c.restaurant_name if c else "Restaurant") or "Restaurant")
+    color = _safe_color(c.primary_color if c else None)
+    logo = _safe_url(c.logo_url if c else "")
+    slug_safe = html.escape(slug, quote=True)
+
+    logo_html = (
+        f'<img src="{logo}" alt="{name}" style="height:60px;object-fit:contain;margin-bottom:8px;border-radius:10px">'
+        if logo else
+        f'<div style="font-family:Syne,sans-serif;font-size:28px;font-weight:800;color:{color}">{name}</div>'
+    )
+
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<title>{name} - Payment</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<style>
+  :root {{ {_css_vars(color)} }}
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{font-family:'DM Sans',sans-serif;background:#0a0a0f;color:#f0f0f5;min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:20px;
+    background:radial-gradient(ellipse at 50% 0%,{color}15 0%,#0a0a0f 70%)}}
+  .card{{background:#13131a;border:1px solid #2a2a38;border-radius:20px;width:100%;
+    max-width:440px;overflow:hidden;box-shadow:0 0 60px {color}18}}
+  .card-body{{padding:28px 28px 32px}}
+  .logo-area{{text-align:center;margin-bottom:6px}}
+  .restro-name{{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:{color};text-align:center;margin-bottom:4px}}
+  .subtitle{{text-align:center;color:#8888a0;font-size:13px;margin-bottom:20px}}
+  .order-summary{{background:#1c1c26;border:1px solid #2a2a38;border-radius:12px;padding:16px;margin-bottom:20px}}
+  .order-summary h3{{font-size:14px;color:{color};margin-bottom:10px}}
+  .order-item{{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:#ccc}}
+  .order-totals{{border-top:1px solid #2a2a38;margin-top:10px;padding-top:10px}}
+  .order-totals .row{{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#aaa}}
+  .order-totals .row.total{{font-size:16px;font-weight:700;color:#f0f0f5}}
+  .tabs{{display:flex;gap:8px;margin-bottom:16px}}
+  .tab{{flex:1;padding:10px;border-radius:10px;border:1px solid #2a2a38;background:#1c1c26;color:#8888a0;
+    font-size:13px;font-weight:500;cursor:pointer;text-align:center;transition:all 0.2s}}
+  .tab.active{{background:{color}22;border-color:{color};color:{color}}}
+  .payment-section{{display:none}}
+  .payment-section.active{{display:block}}
+  .btn{{width:100%;background:linear-gradient(135deg,{color},{color}aa);border:none;
+    border-radius:12px;padding:14px;color:white;font-size:15px;font-weight:600;
+    font-family:'DM Sans',sans-serif;cursor:pointer;transition:opacity 0.2s}}
+  .btn:hover{{opacity:0.9}}
+  .btn:disabled{{opacity:0.5;cursor:not-allowed}}
+  .qr-container{{text-align:center;padding:16px}}
+  .qr-container img{{max-width:280px;border-radius:12px;background:#fff;padding:12px}}
+  .qr-note{{font-size:12px;color:#8888a0;margin-top:12px;text-align:center}}
+  .msg{{border-radius:10px;padding:12px 16px;font-size:14px;margin-top:14px;text-align:center;display:none}}
+  .msg.success{{background:#06d6a018;border:1px solid #06d6a044;color:#06d6a0}}
+  .msg.error{{background:#ef444418;border:1px solid #ef444444;color:#f87171}}
+  .loading{{text-align:center;padding:40px;color:#8888a0}}
+  .upi-id-display{{font-size:12px;color:#8888a0;text-align:center;margin-top:8px}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="card-body">
+    <div class="logo-area">{logo_html}</div>
+    <div class="restro-name">{name}</div>
+    <div class="subtitle">Complete your payment</div>
+    <div id="loading" class="loading">Loading order details...</div>
+    <div id="content" style="display:none">
+      <div class="order-summary" id="order-summary"></div>
+      <div class="tabs" id="tabs"></div>
+      <div id="razorpay-section" class="payment-section">
+        <button class="btn" id="pay-btn" onclick="payRazorpay()">Pay Online</button>
+      </div>
+      <div id="upi-section" class="payment-section">
+        <div class="qr-container" id="qr-container"></div>
+        <div class="qr-note">Scan this QR code with any UPI app to pay.<br>After payment, your order will be confirmed by staff.</div>
+      </div>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+</div>
+<script>
+const BASE=window.location.origin, SLUG='{slug_safe}';
+const params=new URLSearchParams(window.location.search);
+const phone=params.get('phone')||'', table=params.get('table')||'', token=params.get('token')||'';
+let paymentInfo=null;
+
+async function init(){{
+  if(!phone||!table||!token){{
+    document.getElementById('loading').textContent='Invalid payment link. Missing parameters.';
+    return;
+  }}
+  try{{
+    const r=await fetch(BASE+'/webhook/'+SLUG+'/get-payment-info?phone='+encodeURIComponent(phone)+'&table='+encodeURIComponent(table)+'&token='+encodeURIComponent(token));
+    const d=await r.json();
+    if(!d.success){{
+      document.getElementById('loading').textContent=d.error||'Failed to load payment info.';
+      return;
+    }}
+    paymentInfo=d;
+    renderOrder(d);
+    renderTabs(d.payment_methods);
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+  }}catch(e){{
+    document.getElementById('loading').textContent='Network error. Please try again.';
+  }}
+}}
+
+function renderOrder(d){{
+  const s=d.order_summary;
+  let html='<h3>Order Summary</h3>';
+  (s.items||[]).forEach(function(it){{
+    html+='<div class="order-item"><span>'+it.qty+'x '+it.name+'</span><span>Rs.'+it.amount.toFixed(0)+'</span></div>';
+  }});
+  html+='<div class="order-totals">';
+  html+='<div class="row"><span>Subtotal</span><span>Rs.'+s.subtotal.toFixed(0)+'</span></div>';
+  html+='<div class="row"><span>Tax</span><span>Rs.'+s.tax.toFixed(0)+'</span></div>';
+  html+='<div class="row total"><span>Total</span><span>Rs.'+s.total.toFixed(0)+'</span></div>';
+  html+='</div>';
+  document.getElementById('order-summary').innerHTML=html;
+}}
+
+function renderTabs(methods){{
+  const tabsEl=document.getElementById('tabs');
+  if(methods.length<=1){{
+    tabsEl.style.display='none';
+    if(methods[0]==='razorpay'){{showSection('razorpay')}}
+    else{{showSection('upi')}}
+    return;
+  }}
+  let html='';
+  methods.forEach(function(m,i){{
+    const label=m==='razorpay'?'Pay Online':'UPI QR';
+    html+='<div class="tab'+(i===0?' active':'')+'" onclick="switchTab(this,\\''+m+'\\')">'+label+'</div>';
+  }});
+  tabsEl.innerHTML=html;
+  showSection(methods[0]==='razorpay'?'razorpay':'upi');
+}}
+
+function switchTab(el,method){{
+  document.querySelectorAll('.tab').forEach(function(t){{t.classList.remove('active')}});
+  el.classList.add('active');
+  showSection(method==='razorpay'?'razorpay':'upi');
+}}
+
+function showSection(name){{
+  document.querySelectorAll('.payment-section').forEach(function(s){{s.classList.remove('active')}});
+  document.getElementById(name+'-section').classList.add('active');
+  if(name==='upi'&&paymentInfo&&paymentInfo.upi_qr_url){{
+    const c=document.getElementById('qr-container');
+    c.innerHTML='<img src="'+paymentInfo.upi_qr_url+'" alt="UPI QR Code">';
+    if(paymentInfo.upi_id){{
+      c.innerHTML+='<div class="upi-id-display">UPI ID: '+paymentInfo.upi_id+'</div>';
+    }}
+  }}
+}}
+
+async function payRazorpay(){{
+  const btn=document.getElementById('pay-btn');
+  btn.disabled=true;btn.textContent='Processing...';
+  try{{
+    const r=await fetch(BASE+'/webhook/'+SLUG+'/create-razorpay-order',{{
+      method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{phone:phone,table:table,token:token}})
+    }});
+    const d=await r.json();
+    if(!d.success){{showMsg(d.error||'Failed to create order','error');btn.disabled=false;btn.textContent='Pay Online';return;}}
+    const options={{
+      key:d.key_id,
+      amount:d.amount,
+      currency:d.currency,
+      name:d.name,
+      description:d.description,
+      order_id:d.order_id,
+      handler:async function(response){{
+        btn.textContent='Verifying...';
+        const vr=await fetch(BASE+'/webhook/'+SLUG+'/verify-razorpay-payment',{{
+          method:'POST',headers:{{'Content-Type':'application/json'}},
+          body:JSON.stringify({{
+            phone:phone,table:table,token:token,
+            razorpay_order_id:response.razorpay_order_id,
+            razorpay_payment_id:response.razorpay_payment_id,
+            razorpay_signature:response.razorpay_signature
+          }})
+        }});
+        const vd=await vr.json();
+        if(vd.success){{showMsg('Payment confirmed! Your order is being prepared.','success');btn.style.display='none';}}
+        else{{showMsg(vd.error||'Payment verification failed.','error');btn.disabled=false;btn.textContent='Pay Online';}}
+      }},
+      modal:{{ondismiss:function(){{btn.disabled=false;btn.textContent='Pay Online'}}}}
+    }};
+    const rzp=new Razorpay(options);
+    rzp.open();
+  }}catch(e){{showMsg('Network error. Please try again.','error');btn.disabled=false;btn.textContent='Pay Online';}}
+}}
+
+function showMsg(text,type){{
+  const el=document.getElementById('msg');
+  el.textContent=text;el.className='msg '+type;el.style.display='block';
+}}
+
+init();
+</script>
+</body>
+</html>""")
+
+
 @router.get("/menu/{slug}", response_class=HTMLResponse)
 async def menu_page(slug: str):
     c = _get_client(slug)
