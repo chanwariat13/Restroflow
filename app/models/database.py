@@ -85,6 +85,14 @@ class Client(MasterBase):
     premium_threshold  = Column(Integer, default=2)
     cleanup_minutes    = Column(Integer, default=30)
 
+    # Inventory module (per-client opt-in toggle). Default True so existing
+    # tenants who already use the inventory feature keep working untouched
+    # after the auto-migrator backfills the column. New tenants who don't
+    # care about inventory can flip this to False from the admin/owner
+    # dashboard — the Inventory tab, REST endpoints and WhatsApp `STOCK` /
+    # `RESTOCK` / `ADD STOCK` commands all gate on this flag.
+    inventory_enabled  = Column(Boolean, default=True)
+
     # KOT (Kitchen Order Ticket) thermal printer config — ESC/POS over TCP:9100
     kot_enabled        = Column(Boolean, default=False)  # NEW: master toggle
     kot_printer_ip     = Column(String,  default="")     # NEW: LAN IP of thermal printer

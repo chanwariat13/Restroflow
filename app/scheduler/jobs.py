@@ -128,10 +128,15 @@ async def _daily_report_one(cfg: TenantConfig):
                 db.execute(text("INSERT INTO customers (name,phone,first_visit,last_visit,total_visits,total_spent) VALUES (:n,:p,:d,:d,1,:s)"),
                            {"n": name, "p": phone, "d": fmt, "s": spent})
 
-        # Check low stock
-        low = db.execute(text(
-            "SELECT item_name, current_stock, min_threshold, unit FROM inventory WHERE current_stock<=min_threshold"
-        )).fetchall()
+        # Check low stock — only when the tenant has the inventory module
+        # enabled. Disabled tenants have an empty `inventory` table anyway,
+        # but skipping the query keeps the daily report path cleaner.
+        if getattr(cfg, "inventory_enabled", True):
+            low = db.execute(text(
+                "SELECT item_name, current_stock, min_threshold, unit FROM inventory WHERE current_stock<=min_threshold"
+            )).fetchall()
+        else:
+            low = []
         db.commit()
 
     avg = round(total / orders) if orders > 0 else 0

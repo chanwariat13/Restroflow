@@ -1437,6 +1437,17 @@ async function loadSettings() {
       </div>
     </div>
     <div class="form-section">
+      <div class="fs-title">📦 Inventory</div>
+      <div class="form-row">
+        <div class="fg"><label>Track stock for this client?</label>
+          <select class="ti" id="s-inv-enabled">
+            <option value="true"${(s.inventory_enabled !== false)?' selected':''}>Yes — show Inventory tab + WhatsApp stock commands</option>
+            <option value="false"${(s.inventory_enabled === false)?' selected':''}>No — hide Inventory features</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="form-section">
       <div class="fs-title">🔐 Access</div>
       <div class="fg"><label>Owner Dashboard Password</label><input class="ti" id="s-dash-pass" value="${esc(s.dashboard_password)}"></div>
       <div class="fg"><label>Gotenberg URL (PDF)</label><input class="ti" id="s-gotenberg" value="${esc(s.gotenberg_url)}"></div>
@@ -1481,6 +1492,7 @@ async function saveSettings() {
     festival_end: $('s-fest-end').value.trim(),
     dashboard_password: $('s-dash-pass').value.trim(),
     gotenberg_url: $('s-gotenberg').value.trim(),
+    inventory_enabled: $('s-inv-enabled') ? ($('s-inv-enabled').value === 'true') : true,
   };
   const r = await api(`/admin/clients/${curSlug}/full-settings`, 'PATCH', body);
   if (r && r.success) {
