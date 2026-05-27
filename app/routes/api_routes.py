@@ -734,7 +734,7 @@ async def get_payment_info(request: Request, slug: str = Path(...)):
     if "razorpay" in payment_methods and cfg.razorpay_key_id:
         result["razorpay_key_id"] = cfg.razorpay_key_id
 
-    return JSONResponse(result, headers={"Access-Control-Allow-Origin": "*"})
+    return JSONResponse(result)
 
 
 class CreateRazorpayOrderRequest(BaseModel):
@@ -924,7 +924,7 @@ class ConfirmUpiPaymentRequest(BaseModel):
 
 
 @router.post("/webhook/{slug}/confirm-upi-payment")
-async def confirm_upi_payment(req: ConfirmUpiPaymentRequest, slug: str = Path(...)):
+async def confirm_upi_payment(req: ConfirmUpiPaymentRequest, request: Request, slug: str = Path(...)):
     """Staff endpoint to manually confirm a UPI QR payment was received."""
     from app.models.database import MasterSession as _MasterSession, StaffMember
     from app.utils.security import verify_pin
@@ -936,6 +936,14 @@ async def confirm_upi_payment(req: ConfirmUpiPaymentRequest, slug: str = Path(..
 
     if not phone or not table or not staff_pin:
         return JSONResponse({"success": False, "error": "Missing parameters"})
+
+    # Rate limit to prevent brute-force of staff PINs
+    client_ip = request.client.host if request.client else "unknown"
+    if not rc.rate_limit_check(f"upi_confirm:{slug}:{client_ip}", limit=5, window_seconds=60):
+        return JSONResponse(
+            {"success": False, "error": "Too many attempts, please wait."},
+            status_code=429,
+        )
 
     # Authenticate staff by PIN
     db = _MasterSession()
