@@ -667,6 +667,380 @@ async def deduct_inventory(req: DeductRequest, slug: str = Path(...),
 
 
 # ══════════════════════════════════════════════════════
+# P — PAYMENT PAGE API (online checkout flow)
+# ══════════════════════════════════════════════════════
+from app.services.payment import (
+    generate_upi_qr_url,
+    create_razorpay_order,
+    verify_razorpay_payment_signature,
+)
+
+
+@router.get("/webhook/{slug}/get-payment-info")
+async def get_payment_info(request: Request, slug: str = Path(...)):
+    """Return payment methods and order summary for an authenticated session."""
+    cfg = load_tenant(slug)
+    params = dict(request.query_params)
+    phone = str(params.get("phone", "")).strip()
+    table = str(params.get("table", "")).strip().upper()
+    token = str(params.get("token", "")).strip()
+
+    if not phone or not table or not token:
+        return JSONResponse({"success": False, "error": "Missing parameters"})
+
+    session = rc.get_session(cfg.slug, phone)
+    if not session:
+        return JSONResponse({"success": False, "error": "No active session"})
+
+    expected_token = session.get("menuToken") or ""
+    if expected_token:
+        if not hmac.compare_digest(expected_token.encode("utf-8"), token.encode("utf-8")):
+            return JSONResponse({"success": False, "error": "Invalid token"})
+
+    orders = session.get("orders", [])
+    sub = sum(float(o["price"]) * int(o["quantity"]) for o in orders)
+    tax = round(sub * cfg.gst_rate)
+    total = sub + tax
+
+    items = [
+        {"name": o.get("name", ""), "qty": int(o["quantity"]),
+         "amount": float(o["price"]) * int(o["quantity"])}
+        for o in orders
+    ]
+
+    # Determine payment methods from cfg.payment_method
+    pm = (cfg.payment_method or "upi").lower().strip()
+    if pm == "razorpay":
+        payment_methods = ["razorpay"]
+    elif pm in ("upi_qr", "upi"):
+        payment_methods = ["upi_qr"]
+    elif pm == "both":
+        payment_methods = ["razorpay", "upi_qr"]
+    else:
+        payment_methods = ["upi_qr"]
+
+    result = {
+        "success": True,
+        "payment_methods": payment_methods,
+        "order_summary": {"items": items, "subtotal": sub, "tax": tax, "total": total},
+        "restaurant_name": cfg.restaurant_name,
+    }
+
+    if "upi_qr" in payment_methods and cfg.upi_id:
+        order_ref = f"Order at {cfg.restaurant_name}"
+        result["upi_qr_url"] = generate_upi_qr_url(cfg.upi_id, cfg.upi_name, total, order_ref)
+        result["upi_id"] = cfg.upi_id
+
+    if "razorpay" in payment_methods and cfg.razorpay_key_id:
+        result["razorpay_key_id"] = cfg.razorpay_key_id
+
+    return JSONResponse(result)
+
+
+class CreateRazorpayOrderRequest(BaseModel):
+    phone: str
+    table: str
+    token: str
+
+
+@router.post("/webhook/{slug}/create-razorpay-order")
+async def create_razorpay_order_endpoint(req: CreateRazorpayOrderRequest, slug: str = Path(...)):
+    """Create a Razorpay order for checkout and return order params."""
+    cfg = load_tenant(slug)
+    phone = req.phone.strip()
+    table = req.table.strip().upper()
+    token = req.token.strip()
+
+    if not phone or not table or not token:
+        return JSONResponse({"success": False, "error": "Missing parameters"})
+
+    session = rc.get_session(cfg.slug, phone)
+    if not session:
+        return JSONResponse({"success": False, "error": "No active session"})
+
+    expected_token = session.get("menuToken") or ""
+    if expected_token:
+        if not hmac.compare_digest(expected_token.encode("utf-8"), token.encode("utf-8")):
+            return JSONResponse({"success": False, "error": "Invalid token"})
+
+    if session.get("status") not in ("ORDER_PLACED", "PENDING_PAYMENT"):
+        return JSONResponse({"success": False, "error": f"Cannot pay. Status: {session.get('status')}"})
+
+    orders = session.get("orders", [])
+    sub = sum(float(o["price"]) * int(o["quantity"]) for o in orders)
+    tax = round(sub * cfg.gst_rate)
+    total = sub + tax
+    amount_paise = int(round(total * 100))
+
+    order_id = _new_order_id()
+    receipt = order_id
+
+    rz_order = await create_razorpay_order(
+        cfg.razorpay_key_id,
+        cfg.razorpay_key_secret,
+        amount_paise,
+        receipt,
+        {"phone": phone, "table": table, "order_id": order_id},
+    )
+
+    if not rz_order:
+        return JSONResponse({"success": False, "error": "Failed to create payment order"})
+
+    # Update session status to PENDING_PAYMENT
+    session["status"] = "PENDING_PAYMENT"
+    session["razorpay_order_id"] = rz_order.get("id", "")
+    session["internal_order_id"] = order_id
+    rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
+
+    return JSONResponse({
+        "success": True,
+        "order_id": rz_order.get("id", ""),
+        "amount": amount_paise,
+        "key_id": cfg.razorpay_key_id,
+        "currency": "INR",
+        "name": cfg.restaurant_name,
+        "description": f"Order at {cfg.restaurant_name}",
+    })
+
+
+class VerifyRazorpayPaymentRequest(BaseModel):
+    phone: str
+    table: str
+    token: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.post("/webhook/{slug}/verify-razorpay-payment")
+async def verify_razorpay_payment_endpoint(req: VerifyRazorpayPaymentRequest, slug: str = Path(...)):
+    """Verify Razorpay checkout payment signature and mark order as Paid."""
+    cfg = load_tenant(slug)
+    phone = req.phone.strip()
+    table = req.table.strip().upper()
+    token = req.token.strip()
+
+    if not phone or not table or not token:
+        return JSONResponse({"success": False, "error": "Missing parameters"})
+
+    session = rc.get_session(cfg.slug, phone)
+    if not session:
+        return JSONResponse({"success": False, "error": "No active session"})
+
+    expected_token = session.get("menuToken") or ""
+    if expected_token:
+        if not hmac.compare_digest(expected_token.encode("utf-8"), token.encode("utf-8")):
+            return JSONResponse({"success": False, "error": "Invalid token"})
+
+    if session.get("status") not in ("PENDING_PAYMENT", "ORDER_PLACED"):
+        return JSONResponse({"success": False, "error": f"Cannot verify. Status: {session.get('status')}"})
+
+    # Verify signature
+    if not verify_razorpay_payment_signature(
+        req.razorpay_order_id,
+        req.razorpay_payment_id,
+        req.razorpay_signature,
+        cfg.razorpay_key_secret,
+    ):
+        return JSONResponse({"success": False, "error": "Payment verification failed"})
+
+    # Mark as paid
+    orders = list(session.get("orders", []))
+    sub = sum(float(o["price"]) * int(o["quantity"]) for o in orders)
+    tax = round(sub * cfg.gst_rate)
+    total = sub + tax
+    now_ist = datetime.now(IST)
+    name = session.get("name", "Customer")
+    order_id = session.get("internal_order_id") or _new_order_id()
+
+    session.setdefault("paidOrders", []).append(
+        {"items": orders, "paidAt": now_ist.isoformat(), "paymentMethod": "Online", "total": total}
+    )
+    session.update({
+        "status": "PAID",
+        "paymentMethod": "Online",
+        "paidAt": now_ist.isoformat(),
+        "razorpayId": req.razorpay_payment_id,
+        "orders": [],
+    })
+    rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
+
+    items_str = ", ".join(f"{o['quantity']}x {o['name']}" for o in orders)
+    with cfg.db_session() as db:
+        db.execute(text("""
+            INSERT INTO orders (order_id,date,date_only,customer_name,phone,table_name,
+            items,subtotal,tax,total,payment_method,status,billed)
+            VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,:method,'Paid',FALSE)
+        """), {"oid": order_id, "date": now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
+               "donly": fmt_date_short(now_ist), "name": name, "phone": phone,
+               "table": table, "items": items_str, "sub": sub, "tax": tax,
+               "total": total, "method": "Online"})
+        db.commit()
+
+    await wa.send_text(cfg, phone,
+        f"✅ *Payment Confirmed!*\n━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 {name} | 🪑 {table}\n💰 ₹{total:.0f} via Online\n\n"
+        f"🍳 Order being prepared!\n\n*8* - 👋 Checkout | *7* - 🔔 Waiter | *5* - 💵 Bill")
+    await wa.notify_payment(cfg, phone, name, table, order_id, total, "Online")
+    await wa.send_kitchen(cfg,
+        f"🔥 *NEW ORDER (PAID)*\n🪑 {table} | 👤 {name}\n\n"
+        + "\n".join(f"  • {o['quantity']}x {o['name']}" for o in orders)
+        + f"\n\n✅ ₹{total:.0f} paid\n*{table}* confirm | *DONE {table}* when ready")
+
+    # Deduct inventory
+    try:
+        with cfg.db_session() as db:
+            for o in orders:
+                qty = int(o["quantity"])
+                base_name = o.get("menu_name") or o["name"]
+                db.execute(text("""
+                    UPDATE inventory inv
+                    SET current_stock = inv.current_stock - (mi.quantity_used * :qty),
+                        updated_at = NOW()
+                    FROM menu_ingredients mi
+                    WHERE mi.menu_item = :item_name
+                      AND mi.ingredient = inv.item_name
+                      AND inv.current_stock >= (mi.quantity_used * :qty)
+                """), {"qty": qty, "item_name": base_name})
+            db.commit()
+            low = db.execute(text(
+                "SELECT item_name, current_stock, min_threshold, unit "
+                "FROM inventory WHERE current_stock <= min_threshold "
+                "ORDER BY (current_stock-min_threshold) ASC"
+            )).fetchall()
+        if low:
+            await wa.notify_low_stock(cfg, [dict(r._mapping) for r in low])
+    except Exception as e:
+        logger.warning("inventory deduction after razorpay checkout failed: %s", e)
+
+    return JSONResponse({"success": True, "message": "Payment confirmed"})
+
+
+class ConfirmUpiPaymentRequest(BaseModel):
+    phone: str
+    table: str
+    staff_pin: str
+    slug: str = ""
+
+
+@router.post("/webhook/{slug}/confirm-upi-payment")
+async def confirm_upi_payment(req: ConfirmUpiPaymentRequest, request: Request, slug: str = Path(...)):
+    """Staff endpoint to manually confirm a UPI QR payment was received."""
+    from app.models.database import MasterSession as _MasterSession, StaffMember
+    from app.utils.security import verify_pin
+
+    cfg = load_tenant(slug)
+    phone = req.phone.strip()
+    table = req.table.strip().upper()
+    staff_pin = req.staff_pin.strip()
+
+    if not phone or not table or not staff_pin:
+        return JSONResponse({"success": False, "error": "Missing parameters"})
+
+    # Rate limit to prevent brute-force of staff PINs
+    client_ip = request.client.host if request.client else "unknown"
+    if not rc.rate_limit_check(f"upi_confirm:{slug}:{client_ip}", limit=5, window_seconds=60):
+        return JSONResponse(
+            {"success": False, "error": "Too many attempts, please wait."},
+            status_code=429,
+        )
+
+    # Authenticate staff by PIN
+    db = _MasterSession()
+    try:
+        staff_members = db.query(StaffMember).filter(
+            StaffMember.slug == slug,
+            StaffMember.active == True,
+        ).all()
+        authenticated = False
+        for member in staff_members:
+            if verify_pin(staff_pin, member.pin or ""):
+                authenticated = True
+                break
+        if not authenticated:
+            return JSONResponse({"success": False, "error": "Invalid staff PIN"})
+    finally:
+        db.close()
+
+    session = rc.get_session(cfg.slug, phone)
+    if not session:
+        return JSONResponse({"success": False, "error": "No active session"})
+
+    if session.get("status") not in ("ORDER_PLACED", "PENDING_PAYMENT"):
+        return JSONResponse({"success": False, "error": f"Cannot confirm. Status: {session.get('status')}"})
+
+    # Mark as paid
+    orders = list(session.get("orders", []))
+    sub = sum(float(o["price"]) * int(o["quantity"]) for o in orders)
+    tax = round(sub * cfg.gst_rate)
+    total = sub + tax
+    now_ist = datetime.now(IST)
+    name = session.get("name", "Customer")
+    order_id = session.get("internal_order_id") or _new_order_id()
+
+    session.setdefault("paidOrders", []).append(
+        {"items": orders, "paidAt": now_ist.isoformat(), "paymentMethod": "UPI", "total": total}
+    )
+    session.update({
+        "status": "PAID",
+        "paymentMethod": "UPI",
+        "paidAt": now_ist.isoformat(),
+        "orders": [],
+    })
+    rc.save_session(cfg.slug, phone, session, cfg.session_ttl)
+
+    items_str = ", ".join(f"{o['quantity']}x {o['name']}" for o in orders)
+    with cfg.db_session() as db:
+        db.execute(text("""
+            INSERT INTO orders (order_id,date,date_only,customer_name,phone,table_name,
+            items,subtotal,tax,total,payment_method,status,billed)
+            VALUES (:oid,:date,:donly,:name,:phone,:table,:items,:sub,:tax,:total,:method,'Paid',FALSE)
+        """), {"oid": order_id, "date": now_ist.strftime("%d/%m/%Y, %I:%M:%S %p"),
+               "donly": fmt_date_short(now_ist), "name": name, "phone": phone,
+               "table": table, "items": items_str, "sub": sub, "tax": tax,
+               "total": total, "method": "UPI"})
+        db.commit()
+
+    await wa.send_text(cfg, phone,
+        f"✅ *Payment Confirmed!*\n━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 {name} | 🪑 {table}\n💰 ₹{total:.0f} via UPI\n\n"
+        f"🍳 Order being prepared!\n\n*8* - 👋 Checkout | *7* - 🔔 Waiter | *5* - 💵 Bill")
+    await wa.notify_payment(cfg, phone, name, table, order_id, total, "UPI")
+    await wa.send_kitchen(cfg,
+        f"🔥 *NEW ORDER (PAID)*\n🪑 {table} | 👤 {name}\n\n"
+        + "\n".join(f"  • {o['quantity']}x {o['name']}" for o in orders)
+        + f"\n\n✅ ₹{total:.0f} paid\n*{table}* confirm | *DONE {table}* when ready")
+
+    # Deduct inventory
+    try:
+        with cfg.db_session() as db:
+            for o in orders:
+                qty = int(o["quantity"])
+                base_name = o.get("menu_name") or o["name"]
+                db.execute(text("""
+                    UPDATE inventory inv
+                    SET current_stock = inv.current_stock - (mi.quantity_used * :qty),
+                        updated_at = NOW()
+                    FROM menu_ingredients mi
+                    WHERE mi.menu_item = :item_name
+                      AND mi.ingredient = inv.item_name
+                      AND inv.current_stock >= (mi.quantity_used * :qty)
+                """), {"qty": qty, "item_name": base_name})
+            db.commit()
+            low = db.execute(text(
+                "SELECT item_name, current_stock, min_threshold, unit "
+                "FROM inventory WHERE current_stock <= min_threshold "
+                "ORDER BY (current_stock-min_threshold) ASC"
+            )).fetchall()
+        if low:
+            await wa.notify_low_stock(cfg, [dict(r._mapping) for r in low])
+    except Exception as e:
+        logger.warning("inventory deduction after UPI confirmation failed: %s", e)
+
+    return JSONResponse({"success": True, "message": "UPI payment confirmed"})
+
+
+# ══════════════════════════════════════════════════════
 # I — RAZORPAY WEBHOOK (signature-verified)
 # ══════════════════════════════════════════════════════
 @router.post("/webhook/{slug}/razorpay-webhook")
