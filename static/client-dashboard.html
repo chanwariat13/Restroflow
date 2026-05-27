@@ -345,8 +345,45 @@
       </div>
 
       <div class="card" style="padding:24px;margin-bottom:20px">
+        <div class="card-title" style="margin-bottom:20px">🎨 Branding &amp; Theme</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Logo URL</label>
+            <input class="form-inp" id="s-logo-url" placeholder="https://res.cloudinary.com/...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Primary Color (used on the customer menu)</label>
+            <input class="form-inp" id="s-primary-color" type="color" value="#ff6b35" style="height:42px;padding:4px 8px">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Welcome Message</label>
+            <input class="form-inp" id="s-welcome-msg" placeholder="Welcome! Scan & Order">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Banner Image URL (optional)</label>
+            <input class="form-inp" id="s-banner-img" placeholder="https://...">
+          </div>
+        </div>
+        <button class="btn-orange" onclick="saveBranding()">Save Branding</button>
+      </div>
+
+      <div class="card" style="padding:24px;margin-bottom:20px">
         <div class="card-title" style="margin-bottom:20px">💳 Payment Settings</div>
         <div class="form-grid">
+          <div class="form-group full">
+            <label class="form-label">Online Payment Mode</label>
+            <select class="form-sel" id="s-payment-mode" onchange="togglePaymentFields()">
+              <option value="upi">📱 UPI QR (collect via UPI deep link)</option>
+              <option value="razorpay">💳 Razorpay (cards, netbanking, UPI hosted)</option>
+            </select>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">
+              Pick one — only the fields for the selected mode are shown below.
+            </div>
+          </div>
+        </div>
+
+        <!-- UPI fields — visible only when mode = upi -->
+        <div id="pay-upi-block" class="form-grid" style="margin-top:8px">
           <div class="form-group">
             <label class="form-label">UPI ID</label>
             <input class="form-inp" id="s-upi-id" placeholder="yourname@upi">
@@ -356,7 +393,24 @@
             <input class="form-inp" id="s-upi-name" placeholder="Your Restaurant">
           </div>
         </div>
-        <button class="btn-orange" onclick="savePayment()">Save Payment Settings</button>
+
+        <!-- Razorpay fields — visible only when mode = razorpay -->
+        <div id="pay-rzp-block" class="form-grid" style="margin-top:8px;display:none">
+          <div class="form-group">
+            <label class="form-label">Razorpay Key ID</label>
+            <input class="form-inp" id="s-rzp-key" placeholder="rzp_live_xxxxxxxx">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Razorpay Key Secret <span id="s-rzp-secret-status" style="color:var(--muted);font-weight:normal"></span></label>
+            <input class="form-inp" id="s-rzp-secret" type="password" placeholder="Leave blank to keep current">
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Razorpay Webhook Secret <span id="s-rzp-webhook-status" style="color:var(--muted);font-weight:normal"></span></label>
+            <input class="form-inp" id="s-rzp-webhook" type="password" placeholder="Leave blank to keep current">
+          </div>
+        </div>
+
+        <button class="btn-orange" style="margin-top:12px" onclick="savePayment()">Save Payment Settings</button>
       </div>
 
       <div class="card" style="padding:24px;margin-bottom:20px">
@@ -833,10 +887,48 @@ async function loadSettings() {
   document.getElementById('s-google-url').value = s.google_review_url || '';
   document.getElementById('s-upi-id').value = s.upi_id || '';
   document.getElementById('s-upi-name').value = s.upi_name || '';
+  // Branding
+  const lu = document.getElementById('s-logo-url');         if (lu) lu.value = s.logo_url || '';
+  const pc = document.getElementById('s-primary-color');    if (pc) pc.value = s.primary_color || '#ff6b35';
+  const wm = document.getElementById('s-welcome-msg');      if (wm) wm.value = s.welcome_message || '';
+  const bi = document.getElementById('s-banner-img');       if (bi) bi.value = s.banner_image || '';
+  // Payment mode + Razorpay. The dashboard only offers two choices —
+  // upi or razorpay — but the backend also accepts the legacy `upi_qr`
+  // and `both` values, so normalize anything in that family back to
+  // `upi` for the dropdown so the picker doesn't render blank.
+  const pm = (s.payment_method || 'upi').toLowerCase();
+  const pmSel = document.getElementById('s-payment-mode');
+  if (pmSel) pmSel.value = (pm === 'razorpay') ? 'razorpay' : 'upi';
+  const rk = document.getElementById('s-rzp-key');          if (rk) rk.value = s.razorpay_key_id || '';
+  // Two write-only secrets: never echo them back. The backend tells us
+  // whether they're already set so we can show a green "Saved ✓" hint
+  // next to the input — that way the owner knows blanking the box won't
+  // wipe the credential, the placeholder also says so explicitly.
+  const rs = document.getElementById('s-rzp-secret');       if (rs) rs.value = '';
+  const rw = document.getElementById('s-rzp-webhook');      if (rw) rw.value = '';
+  const rsBadge = document.getElementById('s-rzp-secret-status');
+  if (rsBadge) rsBadge.textContent = s.razorpay_key_secret_set ? '· Saved ✓' : '· Not set';
+  const rwBadge = document.getElementById('s-rzp-webhook-status');
+  if (rwBadge) rwBadge.textContent = s.razorpay_webhook_secret_set ? '· Saved ✓' : '· Not set';
+  togglePaymentFields();
   // Inventory toggle — defaults to true for back-compat with rows that
   // don't yet have the column populated.
   const invSel = document.getElementById('s-inv-enabled');
   if (invSel) invSel.value = (s.inventory_enabled === false) ? 'false' : 'true';
+}
+
+// Show only the fields relevant to the currently selected online payment
+// mode. The owner picked one — they don't need to look at (or worse, fill
+// in) the other one's columns. Triggered from the <select onchange> and
+// once on each settings load.
+function togglePaymentFields() {
+  const pmSel = document.getElementById('s-payment-mode');
+  if (!pmSel) return;
+  const mode = pmSel.value;
+  const upi = document.getElementById('pay-upi-block');
+  const rzp = document.getElementById('pay-rzp-block');
+  if (upi) upi.style.display = (mode === 'upi')      ? 'grid' : 'none';
+  if (rzp) rzp.style.display = (mode === 'razorpay') ? 'grid' : 'none';
 }
 
 async function saveInventoryToggle() {
@@ -875,14 +967,57 @@ async function saveGoogle() {
 }
 
 async function savePayment() {
+  const mode = document.getElementById('s-payment-mode').value;
+  // Only send the fields that belong to the selected mode. We deliberately
+  // do NOT clear the unused mode's columns on the backend — keeping them
+  // around lets the owner flip back without re-typing credentials.
+  const body = { payment_method: mode };
+  if (mode === 'upi') {
+    body.upi_id   = document.getElementById('s-upi-id').value.trim();
+    body.upi_name = document.getElementById('s-upi-name').value.trim();
+  } else if (mode === 'razorpay') {
+    body.razorpay_key_id = document.getElementById('s-rzp-key').value.trim();
+    // Two write-only secrets: only include them if the owner actually
+    // typed something. An empty box means "leave the existing secret
+    // alone" — the backend mirrors this convention.
+    const sec = document.getElementById('s-rzp-secret').value;
+    const wh  = document.getElementById('s-rzp-webhook').value;
+    if (sec && sec.trim()) body.razorpay_key_secret     = sec.trim();
+    if (wh  && wh.trim())  body.razorpay_webhook_secret = wh.trim();
+  }
   const r = await fetch(BASE+'/api/client/'+SLUG+'/settings', {
     method:'PATCH', headers:{...H(),'Content-Type':'application/json'},
-    body:JSON.stringify({
-      upi_id: document.getElementById('s-upi-id').value.trim(),
-      upi_name: document.getElementById('s-upi-name').value.trim(),
-    })
+    body:JSON.stringify(body)
   });
-  showToast(r.ok ? 'Payment settings saved!' : 'Error', r.ok ? 'success' : 'error');
+  let msg = 'Payment settings saved!';
+  if (!r.ok) {
+    try { const d = await r.json(); msg = d.error || d.detail || 'Error'; } catch(e) { msg = 'Error'; }
+  }
+  showToast(msg, r.ok ? 'success' : 'error');
+  // Refresh so the "Saved ✓" hints next to the secret fields update.
+  if (r.ok) loadSettings();
+}
+
+async function saveBranding() {
+  const color = document.getElementById('s-primary-color').value.trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+    showToast('Primary color must be a hex like #ff6b35', 'error'); return;
+  }
+  const body = {
+    logo_url:        document.getElementById('s-logo-url').value.trim(),
+    primary_color:   color,
+    welcome_message: document.getElementById('s-welcome-msg').value.trim(),
+    banner_image:    document.getElementById('s-banner-img').value.trim(),
+  };
+  const r = await fetch(BASE+'/api/client/'+SLUG+'/settings', {
+    method:'PATCH', headers:{...H(),'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  let msg = 'Branding saved!';
+  if (!r.ok) {
+    try { const d = await r.json(); msg = d.error || d.detail || 'Error'; } catch(e) { msg = 'Error'; }
+  }
+  showToast(msg, r.ok ? 'success' : 'error');
 }
 
 async function savePassword() {

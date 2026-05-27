@@ -383,6 +383,15 @@ async def get_settings(slug: str, x_client_password: str = Header(...)):
         "welcome_message": c.welcome_message or "",
         "banner_image": c.banner_image or "",
         "payment_method": c.payment_method or "upi",
+        # Razorpay key id is non-secret (it ships in the customer's browser
+        # at checkout) so the owner is allowed to see what's currently
+        # configured. The two secrets below are NEVER returned — instead
+        # we surface boolean "is it set?" flags so the dashboard can show
+        # a "Saved ✓" badge without leaking the value. Owners rotate the
+        # secret by submitting a new one; an empty submission leaves it.
+        "razorpay_key_id":           c.razorpay_key_id or "",
+        "razorpay_key_secret_set":   bool(c.razorpay_key_secret),
+        "razorpay_webhook_secret_set": bool(c.razorpay_webhook_secret),
         "inventory_enabled": bool(getattr(c, "inventory_enabled", True)),
     })
 
@@ -399,6 +408,18 @@ class SettingsUpdate(BaseModel):
     upi_name:           Optional[str] = None
     payment_method:     Optional[str] = None
     inventory_enabled:  Optional[bool] = None
+    # Branding / theme — owner-editable from the dashboard.
+    logo_url:           Optional[str] = None
+    primary_color:      Optional[str] = None
+    welcome_message:    Optional[str] = None
+    banner_image:       Optional[str] = None
+    # Razorpay credentials. key_id is non-secret; the two `*_secret` fields
+    # are write-only — passing an empty string is treated as "leave the
+    # existing secret untouched" so a save of the Payment Settings form
+    # with the secret box left blank doesn't silently wipe credentials.
+    razorpay_key_id:        Optional[str] = None
+    razorpay_key_secret:    Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
 
 @router.patch("/api/client/{slug}/settings")
 async def update_settings(slug: str, body: SettingsUpdate, x_client_password: str = Header(...)):
@@ -414,6 +435,25 @@ async def update_settings(slug: str, body: SettingsUpdate, x_client_password: st
                     {"success": False, "error": "payment_method must be one of: razorpay, upi_qr, both, upi"},
                     status_code=400,
                 )
+        # Validate primary_color: must be a 6-digit hex with leading '#'.
+        # Anything else is rejected outright instead of being silently
+        # coerced — the customer pages already fall back to the default
+        # for malformed values, but we'd rather give the owner explicit
+        # feedback in the dashboard than write garbage to the master DB.
+        if "primary_color" in changes:
+            import re as _re
+            if not _re.match(r"^#[0-9a-fA-F]{6}$", changes["primary_color"] or ""):
+                return JSONResponse(
+                    {"success": False, "error": "primary_color must be a 6-digit hex like #ff6b35"},
+                    status_code=400,
+                )
+        # The two Razorpay `*_secret` fields are write-only. An empty
+        # string submission is treated as "don't rotate" so an owner who
+        # opens the Payment Settings form, switches modes and clicks Save
+        # without re-entering the secret doesn't wipe the existing one.
+        for sec_field in ("razorpay_key_secret", "razorpay_webhook_secret"):
+            if sec_field in changes and not (changes[sec_field] or "").strip():
+                changes.pop(sec_field)
         # Hash the new dashboard password so it lands on disk in the same
         # PBKDF2 encoding as everything else. An empty string is treated as
         # "don't rotate" so a UI that submits the form with the password
