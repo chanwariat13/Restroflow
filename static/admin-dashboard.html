@@ -333,7 +333,14 @@ select.ti{appearance:none;}
           <div class="form-row">
             <div class="fg"><label>Logo URL</label><input class="ti" id="f-logo" placeholder="https://...logo.png"></div>
             <div class="fg"><label>Primary Color</label>
-              <div style="display:flex;gap:8px;align-items:center"><input class="ti" id="f-color" value="#ff6b35" oninput="prevColor()" style="flex:1"><div class="color-prev" id="color-prev" style="background:#ff6b35"></div></div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <!-- Native color picker so the admin sees the swatch as they pick.
+                     The hex string is the source of truth and still drives the
+                     existing live preview chip on the right via prevColor(). -->
+                <input class="ti" id="f-color" type="color" value="#ff6b35" oninput="prevColor()" style="height:40px;padding:4px 6px;flex:0 0 64px">
+                <input class="ti" id="f-color-hex" value="#ff6b35" oninput="syncColorFromHex()" style="flex:1" placeholder="#ff6b35">
+                <div class="color-prev" id="color-prev" style="background:#ff6b35"></div>
+              </div>
             </div>
           </div>
           <div class="form-row">
@@ -360,17 +367,29 @@ select.ti{appearance:none;}
         <div class="form-section">
           <div class="fs-title">💳 Payment</div>
           <div class="form-row">
-            <div class="fg"><label>Method</label><select class="ti" id="f-payment"><option value="upi">UPI</option><option value="razorpay">Razorpay</option></select></div>
-            <div class="fg"><label>UPI ID</label><input class="ti" id="f-upi" placeholder="paytm.s11ivit@pty"></div>
+            <div class="fg"><label>Method</label><select class="ti" id="f-payment" onchange="togglePayAdd()"><option value="upi">UPI</option><option value="razorpay">Razorpay</option></select></div>
+            <div class="fg"><!-- spacer to keep the Method selector on its own row;
+                                 the UPI / Razorpay specific inputs live in the
+                                 toggleable blocks below so only one set is ever
+                                 visible at a time. --></div>
           </div>
-          <div class="fg"><label>UPI Display Name</label><input class="ti" id="f-upi-name" placeholder="White Sugar Restro Cafe"></div>
-          <div class="form-row">
-            <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="f-rzp-key" placeholder="rzp_live_XXXX"></div>
-            <div class="fg"><label>Razorpay Key Secret</label><input class="ti" id="f-rzp-secret" type="password" placeholder="API secret"></div>
+          <!-- UPI fields — visible only when Method = upi -->
+          <div id="f-pay-upi-block">
+            <div class="form-row">
+              <div class="fg"><label>UPI ID</label><input class="ti" id="f-upi" placeholder="paytm.s11ivit@pty"></div>
+              <div class="fg"><label>UPI Display Name</label><input class="ti" id="f-upi-name" placeholder="White Sugar Restro Cafe"></div>
+            </div>
           </div>
-          <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for safe payments</span></label>
-            <input class="ti" id="f-rzp-webhook" placeholder="Set this in Razorpay Dashboard → Webhooks">
-            <div class="hint">Without this, the payment webhook will refuse all events to prevent fraud.</div>
+          <!-- Razorpay fields — visible only when Method = razorpay -->
+          <div id="f-pay-rzp-block" style="display:none">
+            <div class="form-row">
+              <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="f-rzp-key" placeholder="rzp_live_XXXX"></div>
+              <div class="fg"><label>Razorpay Key Secret</label><input class="ti" id="f-rzp-secret" type="password" placeholder="API secret"></div>
+            </div>
+            <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for safe payments</span></label>
+              <input class="ti" id="f-rzp-webhook" placeholder="Set this in Razorpay Dashboard → Webhooks">
+              <div class="hint">Without this, the payment webhook will refuse all events to prevent fraud.</div>
+            </div>
           </div>
         </div>
         <div class="form-section">
@@ -911,9 +930,38 @@ function resetAddForm() {
    'f-rzp-key','f-rzp-secret','f-rzp-webhook','f-gstin']
     .forEach(id => $(id) && ($(id).value = ''));
   $('f-tables').value = '10'; $('f-gst').value = '5';
-  $('f-color').value = '#ff6b35'; prevColor();
+  $('f-color').value = '#ff6b35';
+  if ($('f-color-hex')) $('f-color-hex').value = '#ff6b35';
+  $('f-payment').value = 'upi';
+  prevColor();
+  togglePayAdd();
 }
-function prevColor() { $('color-prev').style.background = $('f-color').value; }
+// Native color picker is the source of truth. Whenever it changes, update
+// both the live preview chip *and* the textbox version of the same value
+// so the admin can copy/paste the exact hex out of the form if they want.
+function prevColor() {
+  const hex = $('f-color').value;
+  $('color-prev').style.background = hex;
+  if ($('f-color-hex')) $('f-color-hex').value = hex;
+}
+// Reverse direction: admin pastes / types a hex into the textbox → push it
+// into the native picker (only if it's actually a valid 6-digit hex,
+// otherwise the picker would coerce it to black and surprise the user).
+function syncColorFromHex() {
+  const v = ($('f-color-hex').value || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+    $('f-color').value = v;
+    $('color-prev').style.background = v;
+  }
+}
+// Hide the unselected payment method's columns in the "Add Restaurant"
+// form. Mirrors togglePay() in the per-client Settings tab below.
+function togglePayAdd() {
+  const mode = $('f-payment').value;
+  const u = $('f-pay-upi-block'), r = $('f-pay-rzp-block');
+  if (u) u.style.display = (mode === 'upi')      ? '' : 'none';
+  if (r) r.style.display = (mode === 'razorpay') ? '' : 'none';
+}
 
 async function submitAdd(e) {
   e.preventDefault();
@@ -1373,7 +1421,16 @@ async function loadSettings() {
       <div class="fs-title">🎨 Branding</div>
       <div class="form-row">
         <div class="fg"><label>Logo URL</label><input class="ti" id="s-logo" value="${esc(s.logo_url)}"></div>
-        <div class="fg"><label>Primary Color</label><input class="ti" id="s-color" value="${esc(s.primary_color)}"></div>
+        <div class="fg"><label>Primary Color</label>
+          <!-- Native color picker + hex textbox kept in sync. The picker is
+               authoritative; the textbox is editable so the admin can paste
+               an exact hex from a brand guide if they want. -->
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="ti" id="s-color" type="color" value="${esc(s.primary_color) || '#ff6b35'}" oninput="prevColorEdit()" style="height:40px;padding:4px 6px;flex:0 0 64px">
+            <input class="ti" id="s-color-hex" value="${esc(s.primary_color) || '#ff6b35'}" oninput="syncEditColorFromHex()" style="flex:1" placeholder="#ff6b35">
+            <div class="color-prev" id="s-color-prev" style="background:${esc(s.primary_color) || '#ff6b35'}"></div>
+          </div>
+        </div>
       </div>
       <div class="form-row">
         <div class="fg"><label>Welcome Message</label><input class="ti" id="s-welcome" value="${esc(s.welcome_message)}"></div>
@@ -1399,17 +1456,26 @@ async function loadSettings() {
     <div class="form-section">
       <div class="fs-title">💳 Payment</div>
       <div class="form-row">
-        <div class="fg"><label>Method</label><select class="ti" id="s-payment"><option value="upi"${s.payment_method==='upi'?' selected':''}>UPI</option><option value="razorpay"${s.payment_method==='razorpay'?' selected':''}>Razorpay</option></select></div>
-        <div class="fg"><label>UPI ID</label><input class="ti" id="s-upi" value="${esc(s.upi_id)}"></div>
+        <div class="fg"><label>Method</label><select class="ti" id="s-payment" onchange="togglePay()"><option value="upi"${s.payment_method==='upi'?' selected':''}>UPI</option><option value="razorpay"${s.payment_method==='razorpay'?' selected':''}>Razorpay</option></select></div>
+        <div class="fg"><!-- spacer so the dropdown sits on its own row --></div>
       </div>
-      <div class="fg"><label>UPI Display Name</label><input class="ti" id="s-upi-name" value="${esc(s.upi_name)}"></div>
-      <div class="form-row">
-        <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="s-rzp-key" value="${esc(s.razorpay_key_id)}"></div>
-        <div class="fg"><label>Razorpay Key Secret</label><input class="ti" type="password" id="s-rzp-secret" value="${esc(s.razorpay_key_secret)}"></div>
+      <!-- UPI fields — visible only when Method = upi -->
+      <div id="s-pay-upi-block">
+        <div class="form-row">
+          <div class="fg"><label>UPI ID</label><input class="ti" id="s-upi" value="${esc(s.upi_id)}"></div>
+          <div class="fg"><label>UPI Display Name</label><input class="ti" id="s-upi-name" value="${esc(s.upi_name)}"></div>
+        </div>
       </div>
-      <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for payment security</span></label>
-        <input class="ti" id="s-rzp-webhook" value="${esc(s.razorpay_webhook_secret)}" placeholder="From Razorpay Dashboard → Webhooks">
-        <div class="hint">Webhook signature is verified using HMAC-SHA256 of this secret. Without it, all payment events are rejected.</div>
+      <!-- Razorpay fields — visible only when Method = razorpay -->
+      <div id="s-pay-rzp-block">
+        <div class="form-row">
+          <div class="fg"><label>Razorpay Key ID</label><input class="ti" id="s-rzp-key" value="${esc(s.razorpay_key_id)}"></div>
+          <div class="fg"><label>Razorpay Key Secret</label><input class="ti" type="password" id="s-rzp-secret" value="${esc(s.razorpay_key_secret)}"></div>
+        </div>
+        <div class="fg"><label>Razorpay Webhook Secret <span style="color:var(--accent)">★ Required for payment security</span></label>
+          <input class="ti" id="s-rzp-webhook" value="${esc(s.razorpay_webhook_secret)}" placeholder="From Razorpay Dashboard → Webhooks">
+          <div class="hint">Webhook signature is verified using HMAC-SHA256 of this secret. Without it, all payment events are rejected.</div>
+        </div>
       </div>
     </div>
     <div class="form-section">
@@ -1457,9 +1523,38 @@ async function loadSettings() {
       <button class="btn primary" onclick="saveSettings()">Save All Settings</button>
     </div>
   `;
+  // Run the per-mode toggle once after the form is in the DOM, so first
+  // render hides the columns the admin doesn't need based on what's
+  // currently saved.
+  togglePay();
 }
 
 function esc(v) { return (v == null ? '' : String(v)).replace(/"/g,'&quot;'); }
+
+// Hide the unselected payment method's columns in the per-client Settings
+// tab. Mirrors togglePayAdd() in the "Add Restaurant" form above.
+function togglePay() {
+  const sel = $('s-payment'); if (!sel) return;
+  const mode = sel.value;
+  const u = $('s-pay-upi-block'), r = $('s-pay-rzp-block');
+  if (u) u.style.display = (mode === 'upi')      ? '' : 'none';
+  if (r) r.style.display = (mode === 'razorpay') ? '' : 'none';
+}
+
+// Color picker live-preview helpers for the Settings tab. Same two-way
+// binding pattern as prevColor() / syncColorFromHex() in the Add form.
+function prevColorEdit() {
+  const hex = $('s-color').value;
+  if ($('s-color-prev')) $('s-color-prev').style.background = hex;
+  if ($('s-color-hex'))  $('s-color-hex').value = hex;
+}
+function syncEditColorFromHex() {
+  const v = ($('s-color-hex').value || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+    $('s-color').value = v;
+    if ($('s-color-prev')) $('s-color-prev').style.background = v;
+  }
+}
 
 async function saveSettings() {
   const body = {
