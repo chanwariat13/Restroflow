@@ -117,6 +117,15 @@ class Client(MasterBase):
     banner_image       = Column(String, default="")
 
     active             = Column(Boolean, default=True)
+    # Temporary closure (e.g. owner on leave, renovation). When `active=False`
+    # is the result of a scheduled pause we also set `paused_until` so the
+    # auto-resume scheduler job knows when to flip `active` back on without
+    # operator action. `paused_at` and `paused_reason` are operator-facing
+    # metadata for the dashboard. All three columns NULL means the row is
+    # either fully active or has been deactivated indefinitely (manual flip).
+    paused_at          = Column(TIMESTAMP, nullable=True)
+    paused_until       = Column(TIMESTAMP, nullable=True, index=True)
+    paused_reason      = Column(String, default="")
     created_at         = Column(TIMESTAMP, default=func.now())
 
 

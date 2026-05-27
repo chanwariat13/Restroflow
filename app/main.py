@@ -19,7 +19,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.models.database import setup_master_db
 from app.scheduler.jobs import (
     run_cleanup, run_daily_report,
-    run_monthly_report, run_festival_broadcast
+    run_monthly_report, run_festival_broadcast,
+    run_resume_paused,
 )
 from app.routes.whatsapp_bot     import router as bot_router
 from app.routes.registration      import router as reg_router
@@ -109,6 +110,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(run_daily_report,       CronTrigger(hour=7,  minute=0, timezone="Asia/Kolkata"), id="daily")
     scheduler.add_job(run_monthly_report,     CronTrigger(day=1, hour=7, minute=0, timezone="Asia/Kolkata"), id="monthly")
     scheduler.add_job(run_festival_broadcast, CronTrigger(hour=10, minute=0, timezone="Asia/Kolkata"), id="festival")
+    # Auto-resume any client whose paused_until has elapsed. Cheap query on
+    # an indexed column, safe at 5-min cadence.
+    scheduler.add_job(run_resume_paused,      IntervalTrigger(minutes=5),                              id="resume_paused")
     scheduler.start()
     print("✅ RestroFlow started — Multi-Tenant Mode")
     print(f"✅ {len(scheduler.get_jobs())} scheduled jobs running")
