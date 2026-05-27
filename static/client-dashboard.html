@@ -175,7 +175,7 @@
     <div class="nav-item" onclick="showPage('tables')"><span class="nav-icon">🪑</span> Live Tables</div>
     <div class="nav-item" onclick="showPage('orders')"><span class="nav-icon">🧾</span> Today's Orders</div>
     <div class="nav-item" onclick="showPage('menu-mgmt')"><span class="nav-icon">🍽️</span> Menu</div>
-    <div class="nav-item" onclick="showPage('inventory')"><span class="nav-icon">📦</span> Inventory</div>
+    <div class="nav-item" id="nav-inventory" onclick="showPage('inventory')"><span class="nav-icon">📦</span> Inventory</div>
     <div class="nav-item" onclick="showPage('customers')"><span class="nav-icon">👥</span> Customers</div>
     <div class="nav-item" onclick="showPage('reports')"><span class="nav-icon">📈</span> Reports</div>
     <div class="nav-item" onclick="showPage('feedback')"><span class="nav-icon">⭐</span> Feedback</div>
@@ -359,6 +359,24 @@
         <button class="btn-orange" onclick="savePayment()">Save Payment Settings</button>
       </div>
 
+      <div class="card" style="padding:24px;margin-bottom:20px">
+        <div class="card-title" style="margin-bottom:20px">📦 Inventory Module</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Track stock for this restaurant?</label>
+            <select class="form-sel" id="s-inv-enabled">
+              <option value="true">✅ Yes — show Inventory tab + WhatsApp stock commands</option>
+              <option value="false">❌ No — hide Inventory features</option>
+            </select>
+            <div style="font-size:12px;color:var(--muted);margin-top:6px">
+              When disabled, the Inventory tab is hidden and WhatsApp commands like
+              <code>STOCK</code>, <code>RESTOCK</code>, <code>ADD STOCK</code> are turned off.
+            </div>
+          </div>
+        </div>
+        <button class="btn-orange" onclick="saveInventoryToggle()">Save Inventory Setting</button>
+      </div>
+
       <div class="card" style="padding:24px">
         <div class="card-title" style="margin-bottom:20px">🔐 Change Dashboard Password</div>
         <div class="form-group">
@@ -537,6 +555,12 @@ async function loadOverview() {
     document.getElementById('ov-low-stock').style.display = 'block';
     document.getElementById('ov-low-msg').textContent = `⚠️ ${d.low_stock_count} items are running low. Go to Inventory to restock.`;
   }
+  // Hide Inventory nav item when the tenant has the module disabled.
+  // The /overview API now returns inventory_enabled; we default to true
+  // for older clients on the off-chance the field isn't present.
+  const invEnabled = (d.inventory_enabled !== false);
+  const navInv = document.getElementById('nav-inventory');
+  if (navInv) navInv.style.display = invEnabled ? '' : 'none';
 }
 
 // ── TABLES ─────────────────────────────────────────────────────────────────
@@ -809,6 +833,21 @@ async function loadSettings() {
   document.getElementById('s-google-url').value = s.google_review_url || '';
   document.getElementById('s-upi-id').value = s.upi_id || '';
   document.getElementById('s-upi-name').value = s.upi_name || '';
+  // Inventory toggle — defaults to true for back-compat with rows that
+  // don't yet have the column populated.
+  const invSel = document.getElementById('s-inv-enabled');
+  if (invSel) invSel.value = (s.inventory_enabled === false) ? 'false' : 'true';
+}
+
+async function saveInventoryToggle() {
+  const enabled = document.getElementById('s-inv-enabled').value === 'true';
+  const r = await fetch(BASE+'/api/client/'+SLUG+'/settings', {
+    method:'PATCH', headers:{...H(),'Content-Type':'application/json'},
+    body:JSON.stringify({ inventory_enabled: enabled })
+  });
+  showToast(r.ok ? 'Inventory setting saved!' : 'Error', r.ok ? 'success' : 'error');
+  // Re-load overview to immediately hide/show the nav item.
+  if (r.ok) loadOverview();
 }
 
 async function saveFestival() {

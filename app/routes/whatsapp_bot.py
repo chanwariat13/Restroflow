@@ -285,14 +285,51 @@ async def _handle_staff(cfg: TenantConfig, staff_phone: str, text: str):
         return
 
     if upper == "RESTOCK":
+        if not cfg.inventory_enabled:
+            await wa.send_text(cfg, staff_phone,
+                "ℹ️ Inventory module is disabled for this restaurant. "
+                "Enable it from the dashboard to use stock commands.")
+            return
         await _restock_template(cfg, staff_phone); return
 
     lines = clean.split("\n")
     if any(l.strip().upper() == "RESTOCK UPDATE" for l in lines):
+        if not cfg.inventory_enabled:
+            await wa.send_text(cfg, staff_phone,
+                "ℹ️ Inventory module is disabled for this restaurant.")
+            return
         await _restock_update(cfg, staff_phone, lines); return
 
     if upper == "STOCK":
+        if not cfg.inventory_enabled:
+            await wa.send_text(cfg, staff_phone,
+                "ℹ️ Inventory module is disabled for this restaurant.")
+            return
         await _stock_list(cfg, staff_phone); return
+
+    # ADD STOCK <name>: <qty> [<unit>] [min <m>] — single-line form so an
+    # owner/manager can introduce a brand-new item from WhatsApp without
+    # opening the dashboard. Multi-word names are supported (everything
+    # before the first ":" is the item name, lowercased+trimmed for
+    # idempotency). If the name already exists we update instead of
+    # inserting so the command is idempotent.
+    m = re.match(
+        r"^ADD\s+STOCK\s+(.+?)\s*:\s*([\d.]+)\s*([A-Za-z]*)\s*(?:MIN\s+([\d.]+))?$",
+        upper,
+    )
+    if m:
+        if not cfg.inventory_enabled:
+            await wa.send_text(cfg, staff_phone,
+                "ℹ️ Inventory module is disabled for this restaurant.")
+            return
+        # Re-extract from the original casing-preserved text so item names
+        # don't get uppercased on the way in.
+        m2 = re.match(
+            r"^ADD\s+STOCK\s+(.+?)\s*:\s*([\d.]+)\s*([A-Za-z]*)\s*(?:[Mm][Ii][Nn]\s+([\d.]+))?$",
+            clean,
+        )
+        if m2:
+            await _add_stock(cfg, staff_phone, m2); return
 
     if upper == "REPORT":
         await _report(cfg, staff_phone); return
@@ -467,6 +504,53 @@ async def _stock_list(cfg: TenantConfig, staff_phone: str):
     await wa.send_text(cfg, staff_phone, msg)
 
 
+async def _add_stock(cfg: TenantConfig, staff_phone: str, m: re.Match):
+    """Create (or upsert) a single inventory row from a WhatsApp command.
+
+    Wire format (case-preserving regex match, see _handle_staff):
+        ADD STOCK <name>: <qty> [<unit>] [min <m>]
+
+    The item name is matched case-insensitively against `inventory.item_name`
+    so that "ADD STOCK Tomato: 5 kg" and "ADD STOCK tomato: 7 kg" target
+    the same row — otherwise an owner could end up with two rows for the
+    same physical item just because of typing case.
+    """
+    name = (m.group(1) or "").strip()
+    try:
+        qty = float(m.group(2))
+    except Exception:
+        await wa.send_text(cfg, staff_phone, "⚠️ Invalid quantity. Try: ADD STOCK Tomato: 5 kg"); return
+    unit = (m.group(3) or "").strip() or "g"
+    min_qty = 0.0
+    if m.group(4):
+        try:
+            min_qty = float(m.group(4))
+        except Exception:
+            min_qty = 0.0
+    if not name:
+        await wa.send_text(cfg, staff_phone, "⚠️ Item name required. Try: ADD STOCK Tomato: 5 kg"); return
+
+    with cfg.db_session() as db:
+        existing = db.execute(text(
+            "SELECT id FROM inventory WHERE LOWER(item_name)=LOWER(:n)"
+        ), {"n": name}).fetchone()
+        if existing:
+            db.execute(text(
+                "UPDATE inventory SET current_stock=:cs, min_threshold=:mt, "
+                "unit=:u, updated_at=NOW() WHERE id=:id"
+            ), {"cs": qty, "mt": min_qty, "u": unit, "id": existing.id})
+            verb = "Updated"
+        else:
+            db.execute(text(
+                "INSERT INTO inventory (item_name,unit,current_stock,min_threshold,cost_price) "
+                "VALUES (:n,:u,:cs,:mt,0)"
+            ), {"n": name, "u": unit, "cs": qty, "mt": min_qty})
+            verb = "Added"
+        db.commit()
+    await wa.send_text(cfg, staff_phone,
+        f"✅ {verb}: *{name}* — {qty}{unit} (min {min_qty}{unit})")
+
+
 async def _report(cfg: TenantConfig, staff_phone: str):
     today = fmt_date_short(datetime.now(IST))
     with cfg.db_session() as db:
@@ -504,6 +588,13 @@ async def _amount(cfg: TenantConfig, staff_phone: str, table: str):
 
 async def _help(cfg: TenantConfig, staff_phone: str):
     P = _tprefix(cfg)
+    inv_section = ""
+    if cfg.inventory_enabled:
+        inv_section = (
+            "📦 *RESTOCK* (template)\n"
+            "📦 *STOCK* (list)\n"
+            "➕ *ADD STOCK Tomato: 5 kg min 1*\n"
+        )
     await wa.send_text(cfg, staff_phone,
         "🤖 *ADMIN COMMANDS*\n━━━━━━━━━━━━━━━━━━\n\n"
         "✅ *APPROVE 91xx*\n❌ *REJECT 91xx*\n💵 *CASH RECEIVED 91xx*\n"
@@ -511,7 +602,8 @@ async def _help(cfg: TenantConfig, staff_phone: str):
         f"📊 *STATUS {P}1*\n📊 *TABLES*\n📄 *BILL {P}1*\n"
         f"✂️ *SPLIT {P}1 N* (split bill in N equal shares;\n"
         f"    optional phones: SPLIT {P}1 3 91aa,91bb,91cc)\n"
-        f"📦 *RESTOCK*\n📦 *STOCK*\n📊 *REPORT*\n💰 *AMOUNT {P}1*")
+        f"{inv_section}"
+        f"📊 *REPORT*\n💰 *AMOUNT {P}1*")
 
 
 # ═══════════════════════════════════════════════════════

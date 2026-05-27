@@ -143,10 +143,15 @@ async def client_overview(slug: str, x_client_password: str = Header(...)):
         # Customer count
         cust_count = db.execute(text("SELECT COUNT(*) as cnt FROM customers")).scalar() or 0
 
-        # Low stock
-        low_stock = db.execute(text(
-            "SELECT COUNT(*) as cnt FROM inventory WHERE current_stock <= min_threshold"
-        )).scalar() or 0
+        # Low stock — only meaningful when the inventory module is enabled
+        # for this client. Skipping the query when disabled also keeps the
+        # overview snappy on tenants who don't use stock at all.
+        if getattr(cfg, "inventory_enabled", True):
+            low_stock = db.execute(text(
+                "SELECT COUNT(*) as cnt FROM inventory WHERE current_stock <= min_threshold"
+            )).scalar() or 0
+        else:
+            low_stock = 0
 
     return JSONResponse({
         "today": {"cash": cash, "online": online, "total": total, "orders": orders_count, "date": today},
@@ -155,6 +160,7 @@ async def client_overview(slug: str, x_client_password: str = Header(...)):
         "total_tables": cfg.table_count,
         "customer_count": int(cust_count),
         "low_stock_count": int(low_stock),
+        "inventory_enabled": bool(getattr(cfg, "inventory_enabled", True)),
     })
 
 
@@ -250,9 +256,25 @@ async def delete_menu_item(slug: str, item_id: int, x_client_password: str = Hea
 
 
 # ── Inventory ──────────────────────────────────────────────────────────────
+def _require_inventory_enabled(slug: str) -> None:
+    """Reject inventory CRUD calls when the tenant has the module switched off.
+
+    The flag lives on the Client row and is mirrored on TenantConfig. We
+    fail closed with HTTP 403 so a client who has disabled the feature
+    can't accidentally write rows that would re-surface if they re-enabled
+    it without realising the API was still wired up. List / read
+    endpoints are gated identically — there's no read-only mode.
+    """
+    cfg = load_tenant(slug)
+    if not getattr(cfg, "inventory_enabled", True):
+        raise HTTPException(status_code=403,
+                            detail="Inventory module is disabled for this restaurant")
+
+
 @router.get("/api/client/{slug}/inventory")
 async def get_inventory(slug: str, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
+    _require_inventory_enabled(slug)
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         rows = db.execute(text("SELECT * FROM inventory ORDER BY item_name")).fetchall()
@@ -265,6 +287,7 @@ class InventoryItem(BaseModel):
 @router.post("/api/client/{slug}/inventory")
 async def add_inventory(slug: str, body: InventoryItem, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
+    _require_inventory_enabled(slug)
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         db.execute(text(
@@ -278,6 +301,7 @@ async def add_inventory(slug: str, body: InventoryItem, x_client_password: str =
 @router.patch("/api/client/{slug}/inventory/{item_id}")
 async def update_inventory(slug: str, item_id: int, body: InventoryItem, x_client_password: str = Header(...)):
     c = _auth_client(slug, x_client_password)
+    _require_inventory_enabled(slug)
     cfg = load_tenant(slug)
     with cfg.db_session() as db:
         db.execute(text(
@@ -359,6 +383,7 @@ async def get_settings(slug: str, x_client_password: str = Header(...)):
         "welcome_message": c.welcome_message or "",
         "banner_image": c.banner_image or "",
         "payment_method": c.payment_method or "upi",
+        "inventory_enabled": bool(getattr(c, "inventory_enabled", True)),
     })
 
 class SettingsUpdate(BaseModel):
@@ -373,6 +398,7 @@ class SettingsUpdate(BaseModel):
     upi_id:             Optional[str] = None
     upi_name:           Optional[str] = None
     payment_method:     Optional[str] = None
+    inventory_enabled:  Optional[bool] = None
 
 @router.patch("/api/client/{slug}/settings")
 async def update_settings(slug: str, body: SettingsUpdate, x_client_password: str = Header(...)):

@@ -68,6 +68,11 @@ class ClientCreate(BaseModel):
     kot_printer_port:    int = 9100
     kot_paper_width:     int = 42
     kot_header_text:     str = ""
+    # Inventory module is opt-in per client. Default True keeps the
+    # historical behaviour for everyone who already uses the feature; new
+    # restaurants that don't care about stock tracking can pass False here
+    # (or flip it later via the dashboard).
+    inventory_enabled:   bool = True
     session_ttl:         int = 10800
     premium_threshold:   int = 2
     cleanup_minutes:     int = 30
@@ -109,6 +114,7 @@ class ClientUpdate(BaseModel):
     kot_printer_port:    Optional[int] = None
     kot_paper_width:     Optional[int] = None
     kot_header_text:     Optional[str] = None
+    inventory_enabled:   Optional[bool] = None
     festival_active:     Optional[bool] = None
     festival_name:       Optional[str] = None
     festival_start:      Optional[str] = None
@@ -172,6 +178,7 @@ async def get_client(slug: str, x_admin_secret: str = Header(...)):
             "staff_owner": c.staff_owner, "staff_manager": c.staff_manager,
             "staff_kitchen": c.staff_kitchen, "payment_method": c.payment_method,
             "upi_id": c.upi_id, "gst_rate": float(c.gst_rate or 0),
+            "inventory_enabled": bool(getattr(c, "inventory_enabled", True)),
             "festival_active": c.festival_active, "festival_name": c.festival_name,
             "paused_until":  c.paused_until.isoformat() if c.paused_until else None,
             "paused_at":     c.paused_at.isoformat() if c.paused_at else None,
@@ -209,6 +216,7 @@ async def add_client(data: ClientCreate, x_admin_secret: str = Header(...)):
             kot_enabled=data.kot_enabled, kot_printer_ip=data.kot_printer_ip,
             kot_printer_port=data.kot_printer_port,
             kot_paper_width=data.kot_paper_width, kot_header_text=data.kot_header_text,
+            inventory_enabled=data.inventory_enabled,
             session_ttl=data.session_ttl, premium_threshold=data.premium_threshold,
             cleanup_minutes=data.cleanup_minutes, festival_active=data.festival_active,
             festival_name=data.festival_name, festival_emoji=data.festival_emoji,
@@ -1040,6 +1048,7 @@ async def admin_get_full_settings(slug: str, x_admin_secret: str = Header(...)):
             "max_session_hours": c.max_session_hours or 2,
             "gst_rate":          float(c.gst_rate or 0.05),
             "gstin":             getattr(c, "gstin", "") or "",
+            "inventory_enabled": bool(getattr(c, "inventory_enabled", True)),
             "session_ttl":       c.session_ttl or 10800,
             "premium_threshold": c.premium_threshold or 2,
             "cleanup_minutes":   c.cleanup_minutes or 30,
@@ -1087,6 +1096,7 @@ class AdminFullSettings(BaseModel):
     max_session_hours:  Optional[int] = None
     gst_rate:           Optional[float] = None
     gstin:              Optional[str] = None
+    inventory_enabled:  Optional[bool] = None
     session_ttl:        Optional[int] = None
     premium_threshold:  Optional[int] = None
     cleanup_minutes:    Optional[int] = None

@@ -64,6 +64,10 @@ class TenantConfig:
     kot_printer_port:   int = 9100
     kot_paper_width:    int = 42
     kot_header_text:    str = ""
+    # Inventory module — opt-in per client. When False, the inventory tab,
+    # REST endpoints and WhatsApp stock commands are disabled for this
+    # tenant. Defaults True for parity with existing deployments.
+    inventory_enabled:  bool = True
 
     def is_festival_today(self) -> bool:
         if not self.festival_active:
@@ -164,6 +168,11 @@ def load_tenant(slug: str) -> TenantConfig:
         kot_printer_port   = int(getattr(client, "kot_printer_port", 9100) or 9100),
         kot_paper_width    = int(getattr(client, "kot_paper_width", 42) or 42),
         kot_header_text    = (getattr(client, "kot_header_text", "") or ""),
+        # `inventory_enabled` defaults to True for clients whose row predates
+        # the column being added (the auto-migrator backfills with True via
+        # the column default, but `getattr(..., True)` here protects against
+        # the very-first request landing before the migrator runs).
+        inventory_enabled  = bool(getattr(client, "inventory_enabled", True)),
     )
 
     _cache[slug] = cfg
