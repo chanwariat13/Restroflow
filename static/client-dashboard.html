@@ -178,6 +178,7 @@
     <div class="nav-item" id="nav-inventory" onclick="showPage('inventory')"><span class="nav-icon">📦</span> Inventory</div>
     <div class="nav-item" onclick="showPage('customers')"><span class="nav-icon">👥</span> Customers</div>
     <div class="nav-item" onclick="showPage('reports')"><span class="nav-icon">📈</span> Reports</div>
+    <div class="nav-item" onclick="showPage('tally')"><span class="nav-icon">📒</span> Tally Export</div>
     <div class="nav-item" onclick="showPage('feedback')"><span class="nav-icon">⭐</span> Feedback</div>
     <div class="nav-item" onclick="showPage('qr-codes')"><span class="nav-icon">📱</span> QR Codes</div>
     <div class="nav-item" onclick="showPage('settings')"><span class="nav-icon">⚙️</span> Settings</div>
@@ -277,6 +278,66 @@
       <div class="page-sub">Daily collection history</div>
       <div class="card">
         <div id="rep-table"><div class="loading"><div class="spin"></div>Loading...</div></div>
+      </div>
+    </div>
+
+    <!-- TALLY EXPORT -->
+    <div class="page" id="page-tally">
+      <div class="page-title">📒 Tally Export</div>
+      <div class="page-sub">Export sales vouchers ready for Tally Prime / ERP 9. Hand to your CA on the 1st of every month.</div>
+
+      <div class="card" style="padding:24px;margin-bottom:20px">
+        <div class="card-title" style="margin-bottom:20px">Date Range &amp; Format</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">From Date</label>
+            <input class="form-inp" id="tally-from" type="date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">To Date</label>
+            <input class="form-inp" id="tally-to" type="date">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Format</label>
+            <select class="form-sel" id="tally-format">
+              <option value="xml">📒 Tally XML — import via Gateway → Import Data → Vouchers</option>
+              <option value="csv">📊 CSV — open in Excel for manual entry</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Include Unpaid Orders?</label>
+            <select class="form-sel" id="tally-unpaid">
+              <option value="false">❌ Paid only (recommended)</option>
+              <option value="true">✅ Include all orders</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <button class="btn-outline" onclick="previewTally()">🔍 Preview</button>
+          <button class="btn-orange" onclick="downloadTally()">⬇ Download</button>
+        </div>
+        <div style="margin-top:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6">
+          <strong style="color:var(--text)">Tip:</strong> Default range is last month (1st → last day). Each Sales Voucher posts taxable value to <em>Sales — Restaurant</em>, splits CGST/SGST/IGST by rate, and routes the receipt to the matching payment ledger (Cash / Bank — UPI / Bank — Razorpay).
+        </div>
+      </div>
+
+      <div id="tally-preview-card" style="display:none">
+        <div class="stats-grid">
+          <div class="stat orange"><div class="stat-label">Vouchers</div><div class="stat-val" id="tp-rows">—</div></div>
+          <div class="stat green"><div class="stat-label">Total Sales</div><div class="stat-val" id="tp-total">—</div></div>
+          <div class="stat yellow"><div class="stat-label">Total Tax</div><div class="stat-val" id="tp-tax">—</div></div>
+          <div class="stat blue"><div class="stat-label">GST Split</div><div class="stat-val" id="tp-split" style="font-size:14px;font-family:'DM Sans',sans-serif;font-weight:500">—</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Payment Breakdown</div></div>
+          <div id="tp-payments"><div style="padding:16px;color:var(--muted)">—</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Sample Vouchers (first 5)</div></div>
+          <div id="tp-sample"><div style="padding:16px;color:var(--muted)">—</div></div>
+        </div>
       </div>
     </div>
 
@@ -588,7 +649,7 @@ function showPage(id) {
     'overview': loadOverview, 'tables': loadTables, 'orders': loadOrders,
     'menu-mgmt': loadMenu, 'inventory': loadInventory, 'customers': loadCustomers,
     'reports': loadReports, 'feedback': loadFeedback, 'qr-codes': loadQRCodes,
-    'settings': loadSettings
+    'settings': loadSettings, 'tally': loadTally
   };
   if (loaders[id]) loaders[id]();
 }
@@ -1030,6 +1091,99 @@ async function savePassword() {
   const d = await r.json();
   showToast(d.message || 'Password updated!', r.ok ? 'success' : 'error');
   if (r.ok) { PASS = p; document.getElementById('s-new-pass').value = ''; }
+}
+
+// ── TALLY EXPORT ────────────────────────────────────────────────────────────
+function _firstOfPrevMonthISO() {
+  const d = new Date(); d.setDate(1); d.setDate(d.getDate() - 1); d.setDate(1);
+  return d.toISOString().slice(0, 10);
+}
+function _lastOfPrevMonthISO() {
+  const d = new Date(); d.setDate(1); d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function loadTally() {
+  const f = document.getElementById('tally-from');
+  const t = document.getElementById('tally-to');
+  if (!f.value) f.value = _firstOfPrevMonthISO();
+  if (!t.value) t.value = _lastOfPrevMonthISO();
+  document.getElementById('tally-preview-card').style.display = 'none';
+}
+
+function _tallyParams() {
+  const from = document.getElementById('tally-from').value;
+  const to   = document.getElementById('tally-to').value;
+  const inc  = document.getElementById('tally-unpaid').value;
+  if (!from || !to) { showToast('Pick both From and To dates', 'error'); return null; }
+  if (from > to)    { showToast('From date must be ≤ To date', 'error'); return null; }
+  return `from_date=${from}&to_date=${to}&include_unpaid=${inc}`;
+}
+
+async function previewTally() {
+  const qs = _tallyParams(); if (!qs) return;
+  const r = await fetch(`${BASE}/api/client/${SLUG}/tally/preview?${qs}`, {headers: H()});
+  if (!r.ok) { showToast('Preview failed', 'error'); return; }
+  const d = await r.json();
+
+  document.getElementById('tp-rows').textContent  = d.row_count;
+  document.getElementById('tp-total').textContent = '₹' + (d.total || 0).toFixed(0);
+  document.getElementById('tp-tax').textContent   = '₹' + (d.tax   || 0).toFixed(0);
+  document.getElementById('tp-split').textContent =
+    `CGST ₹${(d.cgst||0).toFixed(0)} · SGST ₹${(d.sgst||0).toFixed(0)} · IGST ₹${(d.igst||0).toFixed(0)}`;
+
+  // Payment breakdown
+  const pays = d.by_payment || {};
+  let phtml;
+  if (!Object.keys(pays).length) {
+    phtml = '<div style="padding:16px;color:var(--muted)">No matching orders in this range.</div>';
+  } else {
+    phtml = '<table><tr><th>Method</th><th>Orders</th><th>Total</th></tr>';
+    Object.entries(pays).forEach(([pm, info]) => {
+      phtml += `<tr><td>${pm}</td><td>${info.count}</td><td>₹${(info.total||0).toFixed(0)}</td></tr>`;
+    });
+    phtml += '</table>';
+  }
+  document.getElementById('tp-payments').innerHTML = phtml;
+
+  // Sample vouchers
+  const sample = d.sample || [];
+  let shtml;
+  if (!sample.length) {
+    shtml = '<div style="padding:16px;color:var(--muted)">No vouchers to preview.</div>';
+  } else {
+    shtml = '<table><tr><th>Voucher</th><th>Date</th><th>Customer</th><th>Table</th><th>Total</th></tr>';
+    sample.forEach(s => {
+      shtml += `<tr>
+        <td style="font-family:monospace;font-size:12px">${s.voucher || '—'}</td>
+        <td>${s.date || '—'}</td>
+        <td>${s.customer || '—'}</td>
+        <td>${s.table || '—'}</td>
+        <td>₹${(s.total || 0).toFixed(0)}</td>
+      </tr>`;
+    });
+    shtml += '</table>';
+  }
+  document.getElementById('tp-sample').innerHTML = shtml;
+  document.getElementById('tally-preview-card').style.display = 'block';
+  showToast(`${d.row_count} vouchers · ₹${(d.total||0).toFixed(0)}`, 'success');
+}
+
+async function downloadTally() {
+  const qs = _tallyParams(); if (!qs) return;
+  const fmt = document.getElementById('tally-format').value;
+  const r = await fetch(`${BASE}/api/client/${SLUG}/tally/export?${qs}&format=${fmt}`, {headers: H()});
+  if (!r.ok) { showToast('Download failed', 'error'); return; }
+  const rows = r.headers.get('X-Row-Count') || '?';
+  const blob = await r.blob();
+  const from = document.getElementById('tally-from').value;
+  const to   = document.getElementById('tally-to').value;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tally-${SLUG}-${from}-to-${to}.${fmt}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  showToast(`Downloaded ${rows} vouchers (${fmt.toUpperCase()})`, 'success');
 }
 
 // ── TOAST ────────────────────────────────────────────────────────────────────
